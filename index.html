@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="paper">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>墨读 InkMark · 电子书实时批注与知识整理</title>
+<link rel="stylesheet" href="assets/styles/base.css">
+<link rel="stylesheet" href="assets/styles/reader.css">
+<link rel="stylesheet" href="assets/styles/panels.css">
+<script>
+  // 模块脚本在 file:// 下会被浏览器拦截，这里用普通脚本先兜住，给出明确指引
+  if (location.protocol === 'file:') {
+    addEventListener('DOMContentLoaded', function () {
+      var box = document.getElementById('boot-error');
+      if (box) box.hidden = false;
+    });
+  }
+</script>
+</head>
+<body>
+
+<div id="app" class="app">
+
+  <nav class="rail" aria-label="主导航">
+    <div class="rail-brand" title="墨读 InkMark">墨</div>
+    <button class="rail-btn" data-route="library" title="书库">
+      <svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5A2.5 2.5 0 0 1 4 18.5"/></svg>
+      <span>书库</span>
+    </button>
+    <button class="rail-btn" data-route="reader" title="阅读">
+      <svg viewBox="0 0 24 24"><path d="M12 6.5C10.2 4.8 7.6 4 4.5 4v14c3.1 0 5.7.8 7.5 2.5 1.8-1.7 4.4-2.5 7.5-2.5V4c-3.1 0-5.7.8-7.5 2.5z"/><path d="M12 6.5v14"/></svg>
+      <span>阅读</span>
+    </button>
+    <button class="rail-btn" data-route="notes" title="笔记">
+      <svg viewBox="0 0 24 24"><path d="M5 3h11l4 4v14H5z"/><path d="M16 3v4h4"/><path d="M8.5 12h7M8.5 16h4.5"/></svg>
+      <span>笔记</span>
+    </button>
+    <button class="rail-btn" data-route="review" title="复习">
+      <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
+      <span>复习</span>
+    </button>
+    <div class="rail-grow"></div>
+    <button class="rail-btn" data-action="command" title="命令面板 Ctrl+K">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      <span>搜索</span>
+    </button>
+    <button class="rail-btn" data-action="settings" title="设置">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.2M12 18.8V21M4.2 7.5l1.9 1.1M17.9 15.4l1.9 1.1M4.2 16.5l1.9-1.1M17.9 8.6l1.9-1.1"/></svg>
+      <span>设置</span>
+    </button>
+  </nav>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left" id="topbar-left"></div>
+      <div class="topbar-right" id="topbar-right"></div>
+    </header>
+
+    <section class="view" id="view-library" data-view="library"></section>
+
+    <section class="view" id="view-reader" data-view="reader">
+      <div class="reader-scroll" id="reader-scroll">
+        <article class="reader-body" id="reader-body"></article>
+      </div>
+      <div class="reader-progress" id="reader-progress"><i></i></div>
+    </section>
+
+    <section class="view" id="view-notes" data-view="notes"></section>
+    <section class="view" id="view-review" data-view="review"></section>
+    <section class="view" id="view-settings" data-view="settings"></section>
+  </main>
+
+  <aside class="aside" id="aside" aria-label="批注面板"></aside>
+
+</div>
+
+<div id="sel-toolbar" class="sel-toolbar" hidden></div>
+<div id="hover-card" class="hover-card" hidden></div>
+<div id="modal-root"></div>
+<div id="toasts" class="toasts"></div>
+
+<div id="boot-error" class="boot-error" hidden>
+  <div class="boot-card">
+    <h2>请通过本地服务打开</h2>
+    <p>浏览器出于安全限制，不允许用 <code>file://</code> 方式直接打开本应用。</p>
+    <p>请回到项目文件夹，双击 <b>启动.bat</b>，它会自动打开正确地址。</p>
+    <p class="muted">也可以在此目录执行：<code>python -m http.server 8765</code>，再访问
+      <a href="http://localhost:8765/">http://localhost:8765/</a></p>
+  </div>
+</div>
+
+<script src="assets/vendor/pdf.min.js"></script>
+<script src="assets/vendor/jszip.min.js"></script>
+<script src="assets/vendor/marked.min.js"></script>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

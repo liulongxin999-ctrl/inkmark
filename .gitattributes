@@ -1,0 +1,14 @@
+# 统一换行符，避免 Windows / macOS 协作时整文件 diff
+* text=auto eol=lf
+
+# Windows 批处理必须用 CRLF
+*.bat text eol=crlf
+
+# 二进制文件不参与换行符转换与文本 diff
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
+
+# 第三方库不计入语言统计
+assets/vendor/* linguist-vendored

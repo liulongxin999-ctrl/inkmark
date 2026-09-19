@@ -1,0 +1,20 @@
+# 依赖与构建产物（本项目本身无构建步骤，留作占位）
+node_modules/
+dist/
+
+# 临时文件与日志
+*.log
+npm-debug.log*
+tmp-*
+*.tmp
+
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# 测试产生的临时截图目录
+shots/

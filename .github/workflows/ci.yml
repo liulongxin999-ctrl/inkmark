@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 自检与端到端测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 静态检查（模块导入导出是否匹配）
+        run: node tests/check-imports.mjs
+
+      - name: 运行时自检（无头浏览器 + 真实 IndexedDB）
+        run: node tests/run-headless.mjs
+
+      - name: 端到端冒烟测试（上传 → 批注 → 术语 → 笔记）
+        run: node tests/smoke.mjs

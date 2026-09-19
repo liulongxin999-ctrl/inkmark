@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>墨读 · 自检</title>
+<style>
+  body{font:13px/1.7 "Cascadia Mono",Consolas,monospace;background:#14120f;color:#e7e0d4;padding:24px;max-width:900px}
+  h1{font-size:16px;color:#e8a87c}
+  .ok{color:#7fd6a0} .fail{color:#ff8f7a;font-weight:700}
+  #summary{margin-top:14px;padding:10px 12px;border-radius:8px;background:#241f1a;font-size:15px;font-weight:700}
+  .grp{margin-top:12px;color:#9a9083;font-size:11px;letter-spacing:.1em}
+</style>
+</head>
+<body>
+<h1>墨读 · 运行时自检</h1>
+<div id="results">运行中…</div>
+<div id="summary">RUNNING</div>
+<script>
+  window.__selftestLogs = [];
+  window.__selftestResult = null;
+  window.addEventListener('error', e => {
+    window.__selftestLogs.push('ERROR ' + (e.message || e.error) + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
+    if (!window.__selftestResult) {
+      window.__selftestResult = { pass: 0, fail: 1, lines: ['✗ 模块加载失败：' + (e.message || e.error)] };
+      document.getElementById('results').textContent = window.__selftestLogs.join('\n');
+      document.getElementById('summary').textContent = 'PASS 0 / FAIL 1';
+    }
+  }, true);
+  window.addEventListener('unhandledrejection', e => {
+    window.__selftestLogs.push('REJECT ' + (e.reason && e.reason.message || e.reason));
+  });
+</script>
+<script src="../assets/vendor/pdf.min.js"></script>
+<script src="../assets/vendor/jszip.min.js"></script>
+<script src="../assets/vendor/marked.min.js"></script>
+<script type="module" src="./selftest.js"></script>
+</body>
+</html>

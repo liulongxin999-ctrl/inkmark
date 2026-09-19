@@ -10,11 +10,28 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo [0/3] 启用数据防泄漏钩子 ...
+set "hp="
+for /f "delims=" %%i in ('git config --get core.hooksPath 2^>nul') do set "hp=%%i"
+if not "%hp%"==".githooks" (
+  git config core.hooksPath .githooks
+  echo     已启用（提交前会自动检查，私人数据进不了仓库）
+) else (
+  echo     已启用
+)
+
 echo [1/3] 运行快速自检 ...
 where node >nul 2>nul
 if errorlevel 1 (
   echo     跳过（未安装 Node.js）
 ) else (
+  node tools/check-no-data.mjs
+  if errorlevel 1 (
+    echo.
+    echo [x] 检测到私人数据（备份 / 电子书 / 本机路径），已中止，不会提交任何内容。
+    pause
+    exit /b 1
+  )
   node tests/check-imports.mjs
   if errorlevel 1 (
     echo.

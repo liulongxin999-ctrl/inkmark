@@ -15,7 +15,9 @@
     "test:backup": "node tests/backup.mjs",
     "test:ports": "node tests/server-ports.mjs",
     "test:security": "node tests/production-path.mjs",
-    "test:all": "node tests/check-imports.mjs && node tests/server-ports.mjs && node tests/production-path.mjs 8765 && node tests/run-headless.mjs && node tests/smoke.mjs && node tests/persistence.mjs && node tests/backup.mjs",
+    "test:data-guard": "node tests/data-guard.mjs",
+    "check:no-data": "node tools/check-no-data.mjs",
+    "test:all": "node tools/check-no-data.mjs && node tests/check-imports.mjs && node tests/data-guard.mjs && node tests/server-ports.mjs && node tests/production-path.mjs 8765 && node tests/run-headless.mjs && node tests/smoke.mjs && node tests/persistence.mjs && node tests/backup.mjs",
     "serve": "node server.mjs"
   }
 }

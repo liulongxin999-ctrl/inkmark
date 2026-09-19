@@ -1,0 +1,18 @@
+#!/bin/sh
+# 提交前自动检查：任何私人数据都不允许进入仓库
+# 启用方式：git config core.hooksPath .githooks
+
+if ! command -v node >/dev/null 2>&1; then
+  echo ""
+  echo "  [!] 未检测到 Node.js，跳过数据防泄漏检查。"
+  echo "      建议安装 Node.js 后执行：git config core.hooksPath .githooks"
+  echo ""
+  exit 0
+fi
+
+node tools/check-no-data.mjs --staged
+if [ $? -ne 0 ]; then
+  echo "  提交已被阻止：请先把私人数据移出版本控制，或加入 .gitignore。"
+  echo ""
+  exit 1
+fi

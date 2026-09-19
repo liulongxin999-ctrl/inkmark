@@ -30,6 +30,14 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
+      - name: 数据防泄漏（私人数据绝不能进仓库）
+        run: node tools/check-no-data.mjs
+
+      - name: 启用提交钩子并回归测试防泄漏闸门
+        run: |
+          git config core.hooksPath .githooks
+          node tests/data-guard.mjs
+
       - name: 静态检查（模块导入导出是否匹配）
         run: node tests/check-imports.mjs
 

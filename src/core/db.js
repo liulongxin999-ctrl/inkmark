@@ -46,14 +46,20 @@ async function tx(storeNames, mode, fn) {
   const names = Array.isArray(storeNames) ? storeNames : [storeNames];
   return new Promise((resolve, reject) => {
     const t = db.transaction(names, mode);
-    let out;
-    t.oncomplete = () => resolve(out);
-    t.onerror = () => reject(t.error);
-    t.onabort = () => reject(t.error || new Error('transaction aborted'));
+    let out, settled = false;
+    const fail = err => { if (settled) return; settled = true; reject(err); };
+    // 关键：写操作必须等事务真正提交成功才算成功，
+    // 否则「请求成功但事务最终回滚」（例如超出配额）会被误判为保存成功。
+    t.oncomplete = () => { if (settled) return; settled = true; resolve(out); };
+    t.onerror = () => fail(t.error);
+    t.onabort = () => fail(t.error || new Error('transaction aborted'));
     try {
       const stores = Object.fromEntries(names.map(n => [n, t.objectStore(n)]));
       out = fn(stores, t);
-    } catch (e) { try { t.abort(); } catch {} reject(e); }
+      if (out && typeof out.then === 'function') {
+        out.then(v => { out = v; }, err => { try { t.abort(); } catch {} fail(err); });
+      }
+    } catch (e) { try { t.abort(); } catch {} fail(e); }
   });
 }
 

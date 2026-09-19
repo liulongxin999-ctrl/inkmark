@@ -3,6 +3,7 @@
 import { $, el, svg, ICONS, HL_COLORS, esc, downloadText, downloadBlob, fuzzyScore, fmtBytes, relTime, clamp, fmtNum, setChildren } from '../core/utils.js';
 import * as db from '../core/db.js';
 import store from '../core/store.js';
+import { backup, listBackups, flush, restoreFrom, describeBackup } from '../core/backup.js';
 
 /* ---------------- 提示 ---------------- */
 let toastTimer = new Map();
@@ -337,6 +338,10 @@ export function renderSettings() {
         el('p', { class: 'small muted', style: { marginTop: '10px' }, text: '所有数据都保存在这台电脑的浏览器里（IndexedDB），不会上传到任何服务器。清理浏览器数据会一并清除，请定期导出备份。' }),
       ),
       el('div', { class: 'set-panel' },
+        el('h3', { text: '存档位置与磁盘备份' }),
+        backupPanel(),
+      ),
+      el('div', { class: 'set-panel' },
         el('h3', { text: '快捷键' }),
         ...[
           ['Ctrl / ⌘ + K', '打开命令面板'],
@@ -419,6 +424,122 @@ export function exportMarkdown() {
 
 export const statusName = s => ({ inbox: '收集箱', working: '整理中', learned: '已掌握', archive: '归档' }[s] || s || '收集箱');
 const safe = s => String(s || '未命名').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60);
+
+/* ---------------- 数据存放位置与磁盘备份 ---------------- */
+
+/** 生成"数据存在哪 / 备份到哪"面板；状态变化时只重绘这一块 */
+export function backupPanel() {
+  const host = el('div', {});
+  const origin = location.origin;
+  const canonical = 'http://localhost:8765';
+  const unusual = origin !== canonical;
+
+  const persistEl = el('span', { class: 'pill', text: '检测中…' });
+  async function checkPersist() {
+    try {
+      const v = await navigator.storage?.persisted?.();
+      persistEl.textContent = v ? '已授权 · 不会被自动清理' : '未授权 · 建议点右侧申请';
+      persistEl.className = `pill ${v ? 'ok' : 'warn'}`;
+      return v;
+    } catch { persistEl.textContent = '浏览器不支持检测'; return false; }
+  }
+  checkPersist();
+  const persistBtn = el('button', {
+    class: 'btn sm', text: '申请授权',
+    on: {
+      click: async e => {
+        e.target.disabled = true;
+        try {
+          const ok = await navigator.storage.persist();   // 点击属于用户手势，成功率更高
+          toast(ok ? '已获得持久化授权，数据不会被浏览器自动清理' : '浏览器暂未批准；有磁盘备份兜底，不影响使用', ok ? 'ok' : '');
+          await checkPersist();
+        } catch { toast('当前浏览器不支持该能力', 'err'); }
+        e.target.disabled = false;
+      },
+    },
+  });
+
+  const listHost = el('div', { class: 'small', style: { marginTop: '10px' } });
+  const statusEl = el('div', { class: 'small muted', text: backup.summary() });
+
+  async function refresh() {
+    statusEl.textContent = backup.summary();
+    if (!backup.supported) {
+      listHost.replaceChildren(el('div', { class: 'muted small', text: '磁盘备份需要从「启动.bat」打开的地址访问，当前不可用。' }));
+      return;
+    }
+    try {
+      const items = await listBackups();
+      if (!items.length) {
+        listHost.replaceChildren(el('div', { class: 'muted small', text: '还没有生成备份。上传书籍或写批注后会自动生成。' }));
+        return;
+      }
+      listHost.replaceChildren(
+        el('div', { class: 'muted small', style: { marginBottom: '6px' }, text: `保存在 ${backup.dir}` }),
+        ...items.slice(0, 6).map((b, i) => el('div', { class: 'row', style: { padding: '4px 0', gap: '8px' } },
+          el('span', { class: 'grow mono', style: { fontSize: '11.5px' }, text: b.name }),
+          el('span', { class: 'muted', style: { fontSize: '11.5px' }, text: describeBackup(b) }),
+          el('button', {
+            class: 'btn sm', text: i === 0 ? '恢复这一份' : '恢复',
+            on: {
+              click: async () => {
+                if (!await confirmDialog({
+                  title: '从磁盘备份恢复',
+                  message: `将用「${b.name}」覆盖当前全部数据（${describeBackup(b)}）。当前数据会被替换，确定继续吗？`,
+                  okText: '覆盖并恢复', danger: true,
+                })) return;
+                try {
+                  const payload = await restoreFrom(b.name);
+                  toast(`已恢复备份（${payload.data?.books?.length || 0} 本书），正在刷新…`, 'ok');
+                  setTimeout(() => location.reload(), 700);
+                } catch (e) { toast(`恢复失败：${e.message}`, 'err', 5000); }
+              },
+            },
+          }),
+        )),
+      );
+    } catch (e) {
+      listHost.replaceChildren(el('div', { class: 'small', style: { color: 'var(--danger)' }, text: `读取备份列表失败：${e.message}` }));
+    }
+  }
+
+  host.append(
+    el('div', { class: 'set-row' },
+      el('div', { class: 'lbl' }, '当前地址（决定数据存在哪）',
+        el('small', { text: '浏览器按网址隔离存储，换一个地址就看不到这里的书和批注' })),
+      el('span', { class: 'mono small', style: { color: unusual ? 'var(--warn)' : 'var(--ok)' }, text: origin }),
+    ),
+    unusual ? el('div', { class: 'card', style: { borderColor: 'var(--warn)', background: 'color-mix(in srgb,var(--warn) 10%,transparent)' } },
+      el('div', { class: 'small', text: `⚠ 标准地址是 ${canonical}/ ，你现在用的是 ${origin} 。如果之前是在标准地址下写的内容，这里会看不到——请改用标准地址打开，或从下面的磁盘备份恢复。` })) : null,
+    el('div', { class: 'set-row' },
+      el('div', { class: 'lbl' }, '持久化存储', el('small', { text: '授权后浏览器不会在磁盘紧张时清理你的数据' })),
+      el('div', { class: 'row' }, persistEl, persistBtn),
+    ),
+    el('div', { class: 'set-row' },
+      el('div', { class: 'lbl' }, '磁盘自动备份',
+        el('small', { text: '每 2 分钟自动把全部数据另存到项目文件夹的 backups/' })),
+      el('div', { class: 'row' },
+        el('button', {
+          class: 'btn sm', text: '立即备份', on: {
+            click: async e => {
+              e.target.disabled = true;
+              const ok = await flush('手动备份', { force: true });
+              e.target.disabled = false;
+              toast(ok ? '已写入磁盘备份' : (backup.error || '暂时没有可备份的内容'), ok ? 'ok' : 'err');
+              refresh();
+            },
+          },
+        }),
+        el('button', { class: 'btn sm', text: '刷新列表', on: { click: refresh } }),
+      ),
+    ),
+    statusEl, listHost,
+  );
+
+  backup.onChange(() => { statusEl.textContent = backup.summary(); });
+  refresh();
+  return host;
+}
 
 /* ---------------- 全局快捷键 ---------------- */
 export function bindGlobalKeys() {

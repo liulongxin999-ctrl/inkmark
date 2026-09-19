@@ -11,6 +11,10 @@
     "test": "node tests/check-imports.mjs",
     "test:unit": "node tests/run-headless.mjs",
     "test:e2e": "node tests/smoke.mjs",
+    "test:persistence": "node tests/persistence.mjs",
+    "test:backup": "node tests/backup.mjs",
+    "test:ports": "node tests/server-ports.mjs",
+    "test:all": "node tests/check-imports.mjs && node tests/server-ports.mjs && node tests/run-headless.mjs && node tests/smoke.mjs && node tests/persistence.mjs && node tests/backup.mjs",
     "serve": "node server.mjs"
   }
 }

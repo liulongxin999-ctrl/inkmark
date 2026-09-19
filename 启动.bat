@@ -7,6 +7,13 @@ where node >nul 2>nul
 if %errorlevel%==0 (
   echo 正在启动墨读（Node 模式）...
   node server.mjs 8765 --open
+  if errorlevel 1 (
+    echo.
+    echo  ============================================================
+    echo   启动没有成功，请把上面的提示内容发给 Codex 帮你处理。
+    echo  ============================================================
+    pause
+  )
   goto end
 )
 

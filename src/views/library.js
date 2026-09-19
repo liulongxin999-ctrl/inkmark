@@ -5,6 +5,7 @@ import * as db from '../core/db.js';
 import { parseFile, guessKind } from '../import/parsers.js';
 import store from '../core/store.js';
 import { modal, toast, confirmDialog, promptDialog } from '../ui/shell.js';
+import { backup, listBackups, restoreFrom, describeBackup } from '../core/backup.js';
 
 let importing = false;
 
@@ -63,6 +64,7 @@ export function renderLibrary() {
     ),
     fileInput,
     dz,
+    restoreHint(),
     books.length
       ? el('div', { class: 'book-grid' }, ...books.map(bookCard))
       : el('div', { class: 'empty' },
@@ -70,6 +72,55 @@ export function renderLibrary() {
         el('div', { text: '书架还空着。上传第一本电子书，开始你的批注之旅。' }),
         el('div', { class: 'small', style: { marginTop: '8px' }, text: '建议先传一本 TXT 或 EPUB 试试：选中文字就能批注、设术语。' })),
   ));
+}
+
+/** 空书库时，如果磁盘上还有备份，直接给出一键恢复入口
+    （最典型的场景：换了网址打开，浏览器存储里看不到原来的书） */
+const restoreHost = el('div', {});
+let restoreSubscribed = false;
+let restoreCache = { at: 0, items: [] };
+
+function restoreHint() {
+  if (!restoreSubscribed) {
+    restoreSubscribed = true;
+    backup.onChange(drawRestoreHint);
+  }
+  drawRestoreHint();
+  return restoreHost;
+}
+
+async function drawRestoreHint() {
+    const host = restoreHost;
+    if (store.state.books.length || backup.checking || !backup.supported) { host.replaceChildren(); return; }
+    let items = restoreCache.items;
+    if (Date.now() - restoreCache.at > 10000) {
+      try { items = await listBackups(); restoreCache = { at: Date.now(), items }; } catch { return; }
+    }
+    if (!items.length || store.state.books.length) { host.replaceChildren(); return; }
+    const latest = items[0];
+    host.replaceChildren(el('div', {
+      class: 'card',
+      style: { borderColor: 'var(--accent)', background: 'color-mix(in srgb,var(--accent) 8%,transparent)', marginBottom: '18px', padding: '14px 16px' },
+    },
+      el('div', { style: { fontWeight: '600', marginBottom: '4px' }, text: '发现磁盘备份，但当前地址下没有数据' }),
+      el('div', { class: 'small muted', style: { marginBottom: '10px' }, text: `最近一份：${latest.name}（${describeBackup(latest)}），共 ${items.length} 份。如果你之前上传过书，多半是被存在了别的网址下，可以直接从这里找回。` }),
+      el('div', { class: 'row' },
+        el('button', {
+          class: 'btn primary', text: '恢复最近一次备份',
+          on: {
+            click: async () => {
+              if (!await confirmDialog({ title: '恢复磁盘备份', message: `将用「${latest.name}」覆盖当前（空的）书库，确定继续吗？`, okText: '恢复', primary: true, danger: false })) return;
+              try {
+                const payload = await restoreFrom(latest.name);
+                toast(`已恢复 ${payload.data?.books?.length || 0} 本书，正在刷新…`, 'ok');
+                setTimeout(() => location.reload(), 700);
+              } catch (e) { toast(`恢复失败：${e.message}`, 'err', 5000); }
+            },
+          },
+        }),
+        el('span', { class: 'small muted', text: '也可以去「设置 → 存档位置与磁盘备份」挑选其他时间点的备份' }),
+      ),
+    ));
 }
 
 function bookCard(b) {

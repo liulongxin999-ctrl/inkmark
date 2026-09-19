@@ -8,6 +8,7 @@ import { initLibrary, renderLibrary } from './views/library.js';
 import { initNotes, renderNotes, bindWikiLinks } from './views/notes.js';
 import { initReview } from './views/review.js';
 import { renderSettings, bindGlobalKeys, openPalette } from './ui/shell.js';
+import { initBackup, markDirty, backup, flush } from './core/backup.js';
 
 function showBootError(msg) {
   const box = $('#boot-error');
@@ -66,6 +67,11 @@ async function boot() {
   store.bus.on('books', () => { if (store.state.route === 'library') renderLibrary(); });
   store.bus.on('stats', () => { if (store.state.route === 'library') renderLibrary(); });
 
+  // 任何写入都标脏，随后由 backup.js 按节奏落一份到磁盘
+  const WRITE_EVENTS = new Set(['books', 'anns', 'terms', 'notes', 'bookmarks']);
+  store.bus.on('*', ev => { if (WRITE_EVENTS.has(ev)) markDirty(ev === 'books'); });
+  initBackup();
+
   applyRoute();
   if (store.state.books.length) renderLibrary();
   else {
@@ -89,7 +95,7 @@ async function boot() {
 
   console.info('%c墨读 InkMark%c 已就绪 · Ctrl+K 打开命令面板', 'font-size:15px;font-weight:700;color:#b0432a', 'color:#888');
   // 调试入口：控制台可用 __ink.store / __ink.db 直接查看数据
-  window.__ink = { store, db: (await import('./core/db.js')) };
+  window.__ink = { store, db: (await import('./core/db.js')), backup, flush };
   window.__inkReady = true;
 }
 

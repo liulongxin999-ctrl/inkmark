@@ -50,6 +50,8 @@ export const store = {
   /* ---------- 初始化 ---------- */
   async init() {
     await db.openDB();
+    // 请求持久化存储：避免浏览器在磁盘紧张时清理掉你的批注
+    try { await navigator.storage?.persist?.(); } catch { /* 浏览器不支持则忽略 */ }
     const rows = await db.getAll('settings');
     for (const r of rows) if (r.key === 'ui') Object.assign(this.ui, r.value || {});
     this.applyUi();

@@ -29,11 +29,21 @@ const server = spawn(process.execPath, [path.join(root, 'server.mjs'), String(PO
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'inkmark-persist-'));
 let proc = null;
 
+/* 测试过程中应用会自动写出磁盘备份，结束后要清掉自己产生的那些（绝不碰用户已有的） */
+const backupDir = path.join(root, 'backups');
+const preexistingBackups = (() => { try { return fs.readdirSync(backupDir); } catch { return []; } })();
+const cleanBackups = () => {
+  try {
+    for (const f of fs.readdirSync(backupDir)) if (!preexistingBackups.includes(f)) fs.unlinkSync(path.join(backupDir, f));
+  } catch {}
+};
+
 const finish = async code => {
   try { server.kill(); } catch {}
   try { proc?.kill(); } catch {}
   await sleep(300);
   try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
+  cleanBackups();
   process.exit(code);
 };
 

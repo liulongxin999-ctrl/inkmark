@@ -40,7 +40,23 @@ fs.writeFileSync(bookPath, [
 
 const server = spawn(process.execPath, [path.join(root, 'server.mjs'), String(PORT)], { cwd: root, stdio: 'ignore' });
 let proc = null;
-const finish = async code => { try { server.kill(); } catch {} try { proc?.kill(); } catch {} try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} process.exit(code); };
+
+/* 应用会自动写出磁盘备份，测试结束要清掉自己产生的（绝不碰用户已有的） */
+const backupDir = path.join(root, 'backups');
+const preexistingBackups = (() => { try { return fs.readdirSync(backupDir); } catch { return []; } })();
+const cleanBackups = () => {
+  try {
+    for (const f of fs.readdirSync(backupDir)) if (!preexistingBackups.includes(f)) fs.unlinkSync(path.join(backupDir, f));
+  } catch {}
+};
+
+const finish = async code => {
+  try { server.kill(); } catch {}
+  try { proc?.kill(); } catch {}
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  cleanBackups();
+  process.exit(code);
+};
 
 async function waitFor(fn, tries = 100, gap = 200) {
   for (let i = 0; i < tries; i++) { try { const v = await fn(); if (v) return v; } catch {} await sleep(gap); }

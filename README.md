@@ -2,6 +2,9 @@
 
 > 电子书实时批注与知识整理工作台 · 纯本地运行，不需要安装，不需要联网
 
+[![CI](https://github.com/liulongxin999-ctrl/inkmark/actions/workflows/ci.yml/badge.svg)](https://github.com/liulongxin999-ctrl/inkmark/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 把「读电子书」和「做笔记」合成一件事：读到哪、批到哪；批注、术语、笔记三者互相连通，
 右侧栏原地改、正文即时变，全部数据只存在你自己的电脑里。
 
@@ -137,3 +140,16 @@ git push
 - EPUB 中的插图暂以占位符呈现，正文、目录、批注不受影响。
 - 复习算法是简化版 SM-2（忘了 / 模糊 / 记住三档），够用但不追求最优排程。
 - 单本书建议在 300 万字以内；超大文件首次解析需要等待进度条走完。
+
+---
+
+## 许可证
+
+本项目基于 [MIT License](LICENSE) 开源，你可以自由使用、修改、分发，包括用于商业用途，
+只需保留版权声明即可。
+
+第三方依赖（`assets/vendor/`）各有其自身许可证：
+
+- [PDF.js](https://github.com/mozilla/pdf.js) — Apache-2.0
+- [JSZip](https://github.com/Stuk/jszip) — MIT / GPLv3 双许可
+- [marked](https://github.com/markedjs/marked) — MIT

@@ -94,7 +94,7 @@ for (const f of tracked) {
 try {
   const dir = path.join(root, 'backups');
   if (fs.existsSync(dir)) {
-    const files = fs.readdirSync(dir);
+    const files = fs.readdirSync(dir).filter(f => f !== 'index.json');
     if (files.length) notes.push(`backups/ 里有 ${files.length} 份本地备份（不会被提交，仅提示）`);
   }
 } catch {}

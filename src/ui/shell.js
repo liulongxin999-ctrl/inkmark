@@ -3,7 +3,7 @@
 import { $, el, svg, ICONS, HL_COLORS, esc, downloadText, downloadBlob, fuzzyScore, fmtBytes, relTime, clamp, fmtNum, setChildren } from '../core/utils.js';
 import * as db from '../core/db.js';
 import store from '../core/store.js';
-import { backup, listBackups, flush, restoreFrom, describeBackup } from '../core/backup.js';
+import { backup, listBackups, flush, restoreFrom, describeBackup, describePending, clearPending } from '../core/backup.js';
 
 /* ---------------- 提示 ---------------- */
 let toastTimer = new Map();
@@ -345,6 +345,7 @@ export function renderSettings() {
         el('h3', { text: '快捷键' }),
         ...[
           ['Ctrl / ⌘ + K', '打开命令面板'],
+          ['Ctrl / ⌘ + S', '保存（写入磁盘备份）'],
           ['H', '高亮选中文字'],
           ['U', '加下划线'],
           ['N', '写批注并打开侧栏'],
@@ -464,6 +465,26 @@ export function backupPanel() {
 
   async function refresh() {
     statusEl.textContent = backup.summary();
+    const pendingNotice = backup.pending
+      ? el('div', {
+        class: 'card',
+        style: { borderColor: 'var(--warn)', background: 'color-mix(in srgb,var(--warn) 10%,transparent)', marginBottom: '10px' },
+      },
+        el('div', { class: 'small', text: `上次离开时有改动没能自动备份：${describePending()}${backup.pending.why ? `（${backup.pending.why}）` : ''}` }),
+        el('div', { class: 'row', style: { marginTop: '8px' } },
+          el('button', {
+            class: 'btn sm primary', text: '现在补一次备份',
+            on: {
+              click: async () => {
+                const ok = await flush('补做关闭时的备份', { force: true });
+                toast(ok ? '已写入磁盘备份' : `备份失败：${backup.error || '未知原因'}`, ok ? 'ok' : 'err');
+                refresh();
+              },
+            },
+          }),
+          el('button', { class: 'btn sm ghost', text: '忽略这次', on: { click: () => { clearPending(); refresh(); } } }),
+        ))
+      : null;
     if (!backup.supported) {
       listHost.replaceChildren(el('div', { class: 'muted small', text: '磁盘备份需要从「启动.bat」打开的地址访问，当前不可用。' }));
       return;
@@ -471,13 +492,18 @@ export function backupPanel() {
     try {
       const items = await listBackups();
       if (!items.length) {
-        listHost.replaceChildren(el('div', { class: 'muted small', text: '还没有生成备份。上传书籍或写批注后会自动生成。' }));
+        listHost.replaceChildren(pendingNotice, el('div', { class: 'muted small', text: '还没有生成备份。默认会在你关闭页面时自动备份一次。' }));
         return;
       }
       listHost.replaceChildren(
+        pendingNotice,
         el('div', { class: 'muted small', style: { marginBottom: '6px' }, text: `保存在 ${backup.dir}` }),
         ...items.slice(0, 6).map((b, i) => el('div', { class: 'row', style: { padding: '4px 0', gap: '8px' } },
           el('span', { class: 'grow mono', style: { fontSize: '11.5px' }, text: b.name }),
+          (b.books || 0) === 0
+            ? el('span', { class: 'pill', text: '空备份' })
+            : el('span', { class: 'pill', text: `${b.books} 书 / ${b.annotations || 0} 标注 / ${b.notes || 0} 笔记` }),
+          b.reason ? el('span', { class: 'muted', style: { fontSize: '11px' }, text: b.reason }) : null,
           el('span', { class: 'muted', style: { fontSize: '11.5px' }, text: describeBackup(b) }),
           el('button', {
             class: 'btn sm', text: i === 0 ? '恢复这一份' : '恢复',
@@ -516,22 +542,43 @@ export function backupPanel() {
       el('div', { class: 'row' }, persistEl, persistBtn),
     ),
     el('div', { class: 'set-row' },
-      el('div', { class: 'lbl' }, '磁盘自动备份',
-        el('small', { text: '每 2 分钟自动把全部数据另存到项目文件夹的 backups/' })),
+      el('div', { class: 'lbl' }, '自动备份时机',
+        el('small', { text: '默认在你关闭页面时自动备份一次，不打扰你；数据过大发不完时会在下次打开时询问' })),
+      el('select', {
+        class: 'select', style: { width: '200px' },
+        on: { change: e => { store.setUi({ backupMode: e.target.value }); refresh(); } },
+      },
+        el('option', { value: 'close', selected: backup.mode() === 'close', text: '关闭页面时（推荐）' }),
+        el('option', { value: 'hourly', selected: backup.mode() === 'hourly', text: '每小时自动备份' }),
+        el('option', { value: 'manual', selected: backup.mode() === 'manual', text: '仅手动备份' }),
+      ),
+    ),
+    el('div', { class: 'set-row' },
+      el('div', { class: 'lbl' }, '手动保存',
+        el('small', { text: '也可以随时点左侧栏的「保存」，或按 Ctrl+S' })),
       el('div', { class: 'row' },
         el('button', {
-          class: 'btn sm', text: '立即备份', on: {
-            click: async e => {
-              e.target.disabled = true;
-              const ok = await flush('手动备份', { force: true });
-              e.target.disabled = false;
-              toast(ok ? '已写入磁盘备份' : (backup.error || '暂时没有可备份的内容'), ok ? 'ok' : 'err');
-              refresh();
-            },
-          },
+          class: 'btn sm primary', text: '保存一次',
+          on: { click: async () => { await saveNow('手动保存'); refresh(); } },
         }),
         el('button', { class: 'btn sm', text: '刷新列表', on: { click: refresh } }),
       ),
+    ),
+    el('div', { class: 'set-row' },
+      el('div', { class: 'lbl' }, '书库为空时提示恢复备份',
+        el('small', { text: '如果觉得提示多余可以关掉；关掉后仍可在下面的列表里手动恢复' })),
+      (() => {
+        const input = el('input', {
+          type: 'checkbox', checked: store.ui.showRestoreHint !== false,
+          on: {
+            change: e => {
+              store.setUi({ showRestoreHint: e.target.checked });
+              toast(e.target.checked ? '已开启提示' : '已关闭提示');
+            },
+          },
+        });
+        return el('label', { class: 'switch' }, input, el('span', { class: 'sl' }));
+      })(),
     ),
     statusEl, listHost,
   );
@@ -545,5 +592,72 @@ export function backupPanel() {
 export function bindGlobalKeys() {
   window.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
+    // Ctrl/Cmd + S：像文档一样保存
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      saveNow();
+      document.querySelector('.rail-btn[data-action="save"]')?.classList.add('saving');
+      setTimeout(() => document.querySelector('.rail-btn[data-action="save"]')?.classList.remove('saving'), 800);
+    }
   });
+}
+
+/**
+ * 上次关闭页面时有改动没能自动备份（数据超过浏览器关闭时能发送的大小），
+ * 这次打开就地问用户要不要补一份。
+ */
+/** 手动保存：把这次用下来的全部内容写进磁盘备份（等同于文档的"保存"） */
+export async function saveNow(reason = '手动保存', silent = false) {
+  if (!backup.supported) {
+    if (!silent) toast('当前地址不支持磁盘保存，请用「启动.bat」打开', 'err', 4000);
+    return false;
+  }
+  const counts = {
+    books: store.state.books.length,
+    anns: store.state.books.reduce((n, b) => n + (b.annCount || 0), 0),
+    terms: store.state.terms.length,
+    notes: store.state.notes.length,
+  };
+  if (!counts.books && !counts.terms && !counts.notes) {
+    if (!silent) toast('还没有内容可以保存');
+    return false;
+  }
+  const ok = await flush(reason, { force: true });
+  if (ok) {
+    if (!silent) toast(`已保存：${counts.books} 本书 · ${counts.anns} 条批注 · ${counts.terms} 个术语 · ${counts.notes} 条笔记`, 'ok', 3400);
+  } else if (!silent) {
+    toast(`保存失败：${backup.error || '未知原因'}`, 'err', 4500);
+  }
+  return ok;
+}
+
+export function askPendingBackup() {
+  const p = backup.pending;
+  if (!p || !backup.supported) return false;
+  if (backup.mode() === 'manual') return false;   // 用户已经明确选了"仅手动"，不打扰
+
+  modal({
+    title: '上次关闭时有改动没有备份',
+    body: el('div', {},
+      el('div', { class: 'small', style: { lineHeight: '1.9' } },
+        `你在 ${describePending()} 关闭了页面，当时有改动没能自动写进磁盘备份${p.why ? `（${p.why}）` : ''}。`),
+      el('div', { class: 'small muted', style: { marginTop: '8px' } },
+        '现在保存一次吗？保存只会写到项目文件夹的 backups/，不会上传到任何地方。'),
+    ),
+    actions: [
+      {
+        text: '以后不再询问', onClick: async c => {
+          await store.setUi({ backupMode: 'manual' });
+          clearPending(); c();
+          toast('已改为「仅手动备份」，可在设置里改回');
+        },
+      },
+      { text: '暂不保存', onClick: c => { clearPending(); c(); } },
+      {
+        text: '保存', primary: true,
+        onClick: async c => { c(); await saveNow('补做关闭时的保存'); },
+      },
+    ],
+  });
+  return true;
 }

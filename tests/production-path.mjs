@@ -43,6 +43,16 @@ if (!await ready()) {
   cleanup(); process.exit(2);
 }
 
+/* 关键校验：确认我们连上的就是本次启动的进程。
+   否则端口上可能有另一个（旧版本的）墨读实例在跑，测试会测错对象。 */
+const me = await (await fetch(`${BASE}/__inkmark`)).json();
+if (me.pid !== proc.pid) {
+  console.error(`\n✗ 端口 ${PORT} 已被另一个墨读进程占用（对方 PID ${me.pid}，本次 PID ${proc.pid}）。`);
+  console.error('  请先关闭它（关掉那个「启动.bat」窗口），再重新运行本测试。');
+  console.error('  否则测试会连到旧进程上，结果不可信。\n');
+  cleanup(); process.exit(2);
+}
+
 /* 1. 基本可达 */
 const home = await fetch(`${BASE}/`);
 const html = await home.text();
@@ -67,9 +77,24 @@ step('带凭证可以写入备份', save.ok && saveJson.ok === true, saveJson.na
 
 const list = await (await fetch(`${BASE}/__backup/list`, { headers: HEAD })).json();
 step('可以列出备份文件', list.ok && list.count >= 1, `${list.count} 份`);
+const mine = list.backups.find(b => b.name === saveJson.name);
+step('列表带内容摘要（几本书 / 几条批注 / 几条笔记）',
+  !!mine && mine.books === 1 && mine.annotations === 0 && mine.notes === 0,
+  mine ? `书 ${mine.books} · 批注 ${mine.annotations} · 笔记 ${mine.notes}` : '找不到刚写入的备份');
+
+const empty = await fetch(`${BASE}/__backup`, {
+  method: 'POST', headers: { ...HEAD, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ app: 'inkmark', data: { books: [], chapters: [], notes: [], terms: [], annotations: [] } }),
+}).then(r => r.json());
+const list2 = await (await fetch(`${BASE}/__backup/list`, { headers: HEAD })).json();
+const emptyEntry = list2.backups.find(b => b.name === empty.name);
+step('空备份会被标记为 0 本书（界面据此不再推荐恢复）', !!emptyEntry && emptyEntry.books === 0, `books=${emptyEntry?.books}`);
+step('摘要索引没有污染备份计数', list2.backups.every(b => b.name.endsWith('.json') && b.name !== 'index.json'));
+step('同一秒内的两次备份不会互相覆盖', saveJson.name !== empty.name, `${saveJson.name} vs ${empty.name}`);
+step('两份备份确实是两份文件', list2.backups.filter(b => b.name === saveJson.name).length === 1 && !!list2.backups.find(b => b.name === empty.name));
 
 const got = await (await fetch(`${BASE}/__backup/file?name=${encodeURIComponent(saveJson.name)}`, { headers: HEAD })).json();
-step('可以读回备份内容', got.data.books[0].title === '安全测试书');
+step('可以读回备份内容', got?.data?.books?.[0]?.title === '安全测试书', JSON.stringify(got).slice(0, 140));
 
 /* 4. 目录穿越与静态泄露 */
 const trav1 = await fetch(`${BASE}/__backup/file?name=..%2Fserver.mjs`, { headers: HEAD });

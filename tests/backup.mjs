@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import url from 'node:url';
+import { sweepTestBackups } from './_cleanup.mjs';
 
 const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 const PORT = 8794, CDP = 9332;
@@ -27,6 +28,7 @@ const browserPath = CANDIDATES.find(p => fs.existsSync(p));
 if (!browserPath) { console.error('✗ 未找到浏览器'); process.exit(2); }
 
 /* 记录测试前已有的备份文件，结束时清理本次新增的 */
+sweepTestBackups();
 const before = fs.existsSync(BACKUP_DIR) ? fs.readdirSync(BACKUP_DIR) : [];
 
 const server = spawn(process.execPath, [path.join(root, 'server.mjs'), String(PORT)], { cwd: root, stdio: 'ignore' });
@@ -42,6 +44,7 @@ const finish = async code => {
     for (const f of fs.readdirSync(BACKUP_DIR)) if (!before.includes(f)) fs.unlinkSync(path.join(BACKUP_DIR, f));
     if (!fs.existsSync(BACKUP_DIR)) { /* 无目录则无需处理 */ }
   } catch {}
+  sweepTestBackups();
   process.exit(code);
 };
 
@@ -96,8 +99,14 @@ async function openSession() {
     return r?.result?.value;
   };
 
+  const reload = async () => {
+    await send('Page.navigate', { url: `http://localhost:${PORT}/` });
+    await waitFor(async () => (await send('Runtime.evaluate', { expression: '!!window.__inkReady', returnByValue: true }))?.result?.value, 60, 250);
+    await sleep(400);
+  };
+
   return {
-    evalJs, send,
+    evalJs, send, reload,
     async importBook(filePath) {
       const doc = await send('DOM.getDocument', { depth: -1 });
       const input = await send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#view-library input[type=file]' });
@@ -127,7 +136,8 @@ await sleep(500);
 
 const flushed = await s.evalJs("window.__ink.flush('测试备份', { force: true })", true);
 step('可以主动写出磁盘备份', flushed === true, String(flushed));
-const files = (() => { try { return fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.json')); } catch { return []; } })();
+// 注意排除 index.json（备份摘要缓存，不是备份本体）
+const files = (() => { try { return fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.json') && f !== 'index.json'); } catch { return []; } })();
 step('备份文件已生成在 backups/ 目录', files.length > 0, `${files.length} 个文件`);
 
 const saved = (() => {
@@ -147,13 +157,36 @@ s = await openSession();
 const emptyBooks = await s.evalJs('window.__ink.store.state.books.length');
 step('全新浏览器下书库确实为空（复现你遇到的问题）', emptyBooks === 0, `书 ${emptyBooks} 本`);
 
-const bannerShown = await waitFor(async () => await s.evalJs("!!document.querySelector('#view-library .card .btn.primary')"), 40, 250);
+const HINT = "document.querySelector('#view-library [data-restore-hint]')";
+const clickHintBtn = label => s.evalJs(`[...document.querySelectorAll('#view-library [data-restore-hint] .btn')].find(b => b.textContent === '${label}').click()`);
+
+const bannerShown = await waitFor(async () => await s.evalJs(`!!${HINT}`), 40, 250);
 step('自动提示"发现磁盘备份，是否恢复"', !!bannerShown);
 
 const backupInfo = await s.evalJs("window.__ink.backup.supported && window.__ink.backup.count");
 step('页面能读到磁盘备份列表', backupInfo > 0, `${backupInfo} 份`);
 
-await s.evalJs("document.querySelector('#view-library .card .btn.primary').click()");
+/* ===== 提示的三种处理方式：本次忽略 / 永久忽略 / 恢复 ===== */
+step('提示条上一共有三个按钮（恢复 / 本次忽略 / 永久忽略）',
+  (await s.evalJs(`[...document.querySelectorAll('#view-library [data-restore-hint] .btn')].map(b => b.textContent).join(',')`))
+    === '恢复最近一次备份,本次忽略,永久忽略');
+
+await clickHintBtn('本次忽略');
+step('点「本次忽略」后提示立刻消失', (await s.evalJs(`!!${HINT}`)) === false);
+await s.reload();
+step('刷新页面后提示重新出现（说明只忽略了这一次）', await waitFor(async () => await s.evalJs(`!!${HINT}`), 30, 250));
+
+await clickHintBtn('永久忽略');
+step('点「永久忽略」后提示立刻消失', (await s.evalJs(`!!${HINT}`)) === false);
+await s.reload();
+step('刷新页面后仍然不再提示', (await s.evalJs(`!!${HINT}`)) === false);
+step('永久忽略已写入设置', (await s.evalJs('window.__ink.store.ui.showRestoreHint')) === false);
+
+await s.evalJs("window.__ink.store.setUi({ showRestoreHint: true })");
+step('在设置里重新开启后，提示恢复', await waitFor(async () => await s.evalJs(`!!${HINT}`), 30, 250));
+
+/* ===== 一键恢复 ===== */
+await clickHintBtn('恢复最近一次备份');
 await waitFor(async () => await s.evalJs("!!document.querySelector('#modal-root .modal')"), 30, 200);
 await s.evalJs("document.querySelector('#modal-root .modal-foot .btn.primary').click()");
 

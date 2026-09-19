@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import url from 'node:url';
+import { sweepTestBackups } from './_cleanup.mjs';
 
 const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 const PORT = 8797, CDP = 9335;
@@ -42,6 +43,7 @@ const server = spawn(process.execPath, [path.join(root, 'server.mjs'), String(PO
 let proc = null;
 
 /* 应用会自动写出磁盘备份，测试结束要清掉自己产生的（绝不碰用户已有的） */
+sweepTestBackups();
 const backupDir = path.join(root, 'backups');
 const preexistingBackups = (() => { try { return fs.readdirSync(backupDir); } catch { return []; } })();
 const cleanBackups = () => {
@@ -55,6 +57,7 @@ const finish = async code => {
   try { proc?.kill(); } catch {}
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
   cleanBackups();
+  sweepTestBackups();
   process.exit(code);
 };
 

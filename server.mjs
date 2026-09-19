@@ -20,6 +20,7 @@ const ALLOW_PORT_CHANGE = args.includes('--allow-port-change');
 const HOST = '127.0.0.1';
 
 const BACKUP_DIR = path.join(root, 'backups');
+const INDEX_FILE = 'index.json';        // 备份摘要（文件数、含几本书几条例句），避免每次都解析大文件
 const MAX_BACKUPS = 12;
 const MAX_BODY = 256 * 1024 * 1024;   // 单次备份上限 256MB
 
@@ -66,11 +67,12 @@ const stamp = (d = new Date()) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 };
 
-function listBackups() {
+/** 只读文件名与大小，不解析内容 */
+function listFiles() {
   try {
     if (!fs.existsSync(BACKUP_DIR)) return [];
     return fs.readdirSync(BACKUP_DIR)
-      .filter(f => f.endsWith('.json'))
+      .filter(f => f.endsWith('.json') && f !== INDEX_FILE)
       .map(f => {
         const st = fs.statSync(path.join(BACKUP_DIR, f));
         return { name: f, size: st.size, mtime: st.mtimeMs };
@@ -79,8 +81,50 @@ function listBackups() {
   } catch { return []; }
 }
 
+const readIndex = () => {
+  try { return JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, INDEX_FILE), 'utf8')); } catch { return {}; }
+};
+const writeIndex = idx => {
+  try { fs.mkdirSync(BACKUP_DIR, { recursive: true }); fs.writeFileSync(path.join(BACKUP_DIR, INDEX_FILE), JSON.stringify(idx), 'utf8'); } catch {}
+};
+
+/** 从备份内容里提取规模信息（首次遇到没有摘要的旧备份时才会解析） */
+function summarize(name) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(BACKUP_DIR, name), 'utf8'));
+    const d = j.data || {};
+    return {
+      books: d.books?.length || 0,
+      chapters: d.chapters?.length || 0,
+      annotations: d.annotations?.length || 0,
+      terms: d.terms?.length || 0,
+      notes: d.notes?.length || 0,
+      origin: j.origin || '',
+      savedAt: j.savedAt || 0,
+      reason: j.reason || '',
+    };
+  } catch { return { books: 0, chapters: 0, annotations: 0, terms: 0, notes: 0, origin: '', savedAt: 0, broken: true }; }
+}
+
+/** 列表带摘要：界面上可以直接显示"3 本书 · 12 条笔记" */
+function listBackups() {
+  const files = listFiles();
+  const idx = readIndex();
+  let changed = false;
+  const out = files.map(f => {
+    let info = idx[f.name];
+    if (!info) { info = summarize(f.name); idx[f.name] = info; changed = true; }
+    return { ...f, ...info };
+  });
+  // 清掉已经不存在的文件对应的摘要
+  const alive = new Set(files.map(f => f.name));
+  for (const k of Object.keys(idx)) if (!alive.has(k)) { delete idx[k]; changed = true; }
+  if (changed) writeIndex(idx);
+  return out;
+}
+
 function trimBackups() {
-  for (const f of listBackups().slice(MAX_BACKUPS)) {
+  for (const f of listFiles().slice(MAX_BACKUPS)) {
     try { fs.unlinkSync(path.join(BACKUP_DIR, f.name)); } catch {}
   }
 }
@@ -93,8 +137,17 @@ async function saveBackup(req, res) {
     const data = JSON.parse(text);
     if (data?.app !== 'inkmark' || !data.data) return json(res, 400, { ok: false, error: '备份内容格式不正确' });
     fs.mkdirSync(BACKUP_DIR, { recursive: true });
-    const name = `墨读自动备份-${stamp()}.json`;
+    // 文件名精确到秒，同一秒内连续备份会重名互相覆盖 —— 这里自动加序号避开
+    let name = `墨读自动备份-${stamp()}.json`;
+    for (let i = 2; fs.existsSync(path.join(BACKUP_DIR, name)); i++) {
+      name = `墨读自动备份-${stamp()}-${i}.json`;
+      if (i > 99) break;
+    }
     fs.writeFileSync(path.join(BACKUP_DIR, name), text, 'utf8');
+    // 顺手记下摘要，列表就不用再解析大文件
+    const idx = readIndex();
+    idx[name] = summarize(name);
+    writeIndex(idx);
     trimBackups();
     const count = listBackups().length;
     console.log(`[备份] 已写入 ${name}（${(buf.length / 1024).toFixed(1)} KB，保留最新 ${count} 份）`);

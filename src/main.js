@@ -1,6 +1,6 @@
 /* 应用入口：装配路由、视图与全局交互 */
 
-import { $, $$, el } from './core/utils.js';
+import { $, $$, el, relTime } from './core/utils.js';
 import store from './core/store.js';
 import { initReader, bindReaderKeys, renderTopbar, renderChapter } from './reader/reader.js';
 import { initSidebar } from './panels/sidebar.js';
@@ -9,6 +9,7 @@ import { initNotes, renderNotes, bindWikiLinks } from './views/notes.js';
 import { initReview } from './views/review.js';
 import { renderSettings, bindGlobalKeys, openPalette } from './ui/shell.js';
 import { initBackup, markDirty, backup, flush } from './core/backup.js';
+import { askPendingBackup, saveNow } from './ui/shell.js';
 
 function showBootError(msg) {
   const box = $('#boot-error');
@@ -34,6 +35,28 @@ function bindRail() {
   $$('.rail-btn[data-route]').forEach(btn => btn.addEventListener('click', () => store.go(btn.dataset.route)));
   $('.rail-btn[data-action="settings"]')?.addEventListener('click', () => store.go('settings'));
   $('.rail-btn[data-action="command"]')?.addEventListener('click', () => openPalette());
+  bindSaveButton();
+}
+
+/** 左侧栏「保存」按钮：有未保存改动时显示小圆点，点击即保存（等同文档的保存） */
+function bindSaveButton() {
+  const btn = $('.rail-btn[data-action="save"]');
+  if (!btn) return;
+  const dot = btn.querySelector('.unsaved');
+  btn.addEventListener('click', async () => {
+    btn.classList.add('saving');
+    await saveNow();
+    setTimeout(() => btn.classList.remove('saving'), 800);
+    sync();
+  });
+  const sync = () => {
+    if (dot) dot.hidden = !backup.dirty;
+    btn.title = backup.dirty
+      ? '有未保存的改动，点击保存（Ctrl+S）'
+      : `已保存${backup.lastAt ? ` · ${relTime(backup.lastAt)}` : ''}（Ctrl+S）`;
+  };
+  backup.onChange(sync);
+  sync();
 }
 
 async function boot() {
@@ -69,8 +92,11 @@ async function boot() {
 
   // 任何写入都标脏，随后由 backup.js 按节奏落一份到磁盘
   const WRITE_EVENTS = new Set(['books', 'anns', 'terms', 'notes', 'bookmarks']);
-  store.bus.on('*', ev => { if (WRITE_EVENTS.has(ev)) markDirty(ev === 'books'); });
+  store.bus.on('*', ev => { if (WRITE_EVENTS.has(ev)) markDirty(); });
   initBackup();
+  const askTimer = setInterval(() => {
+    if (!backup.checking) { clearInterval(askTimer); askPendingBackup(); }
+  }, 300);
 
   applyRoute();
   if (store.state.books.length) renderLibrary();

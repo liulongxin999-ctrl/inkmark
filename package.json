@@ -13,11 +13,12 @@
     "test:e2e": "node tests/smoke.mjs",
     "test:persistence": "node tests/persistence.mjs",
     "test:backup": "node tests/backup.mjs",
+    "test:save": "node tests/backup-timing.mjs",
     "test:ports": "node tests/server-ports.mjs",
     "test:security": "node tests/production-path.mjs",
     "test:data-guard": "node tests/data-guard.mjs",
     "check:no-data": "node tools/check-no-data.mjs",
-    "test:all": "node tools/check-no-data.mjs && node tests/check-imports.mjs && node tests/data-guard.mjs && node tests/server-ports.mjs && node tests/production-path.mjs 8765 && node tests/run-headless.mjs && node tests/smoke.mjs && node tests/persistence.mjs && node tests/backup.mjs",
+    "test:all": "node tools/check-no-data.mjs && node tests/check-imports.mjs && node tests/data-guard.mjs && node tests/server-ports.mjs && node tests/production-path.mjs 8765 && node tests/run-headless.mjs && node tests/smoke.mjs && node tests/persistence.mjs && node tests/backup.mjs && node tests/backup-timing.mjs",
     "serve": "node server.mjs"
   }
 }

@@ -79,11 +79,13 @@ export function renderLibrary() {
 const restoreHost = el('div', {});
 let restoreSubscribed = false;
 let restoreCache = { at: 0, items: [] };
+let restoreDismissedThisSession = false;
 
 function restoreHint() {
   if (!restoreSubscribed) {
     restoreSubscribed = true;
     backup.onChange(drawRestoreHint);
+    store.bus.on('ui', drawRestoreHint);
   }
   drawRestoreHint();
   return restoreHost;
@@ -91,20 +93,27 @@ function restoreHint() {
 
 async function drawRestoreHint() {
     const host = restoreHost;
-    if (store.state.books.length || backup.checking || !backup.supported) { host.replaceChildren(); return; }
+    // 四种情况都不打扰用户：本次已忽略 / 永久忽略 / 书库有内容 / 备份能力不可用
+    if (restoreDismissedThisSession || store.ui.showRestoreHint === false
+      || store.state.books.length || backup.checking || !backup.supported) {
+      host.replaceChildren();
+      return;
+    }
     let items = restoreCache.items;
     if (Date.now() - restoreCache.at > 10000) {
       try { items = await listBackups(); restoreCache = { at: Date.now(), items }; } catch { return; }
     }
-    if (!items.length || store.state.books.length) { host.replaceChildren(); return; }
-    const latest = items[0];
+    // 只推荐真正有内容的备份：空备份恢复了也没有意义
+    const usable = items.filter(b => (b.books || 0) > 0);
+    if (!usable.length || store.state.books.length) { host.replaceChildren(); return; }
+    const latest = usable[0];
     host.replaceChildren(el('div', {
-      class: 'card',
+      class: 'card', dataset: { restoreHint: '1' },
       style: { borderColor: 'var(--accent)', background: 'color-mix(in srgb,var(--accent) 8%,transparent)', marginBottom: '18px', padding: '14px 16px' },
     },
       el('div', { style: { fontWeight: '600', marginBottom: '4px' }, text: '发现磁盘备份，但当前地址下没有数据' }),
-      el('div', { class: 'small muted', style: { marginBottom: '10px' }, text: `最近一份：${latest.name}（${describeBackup(latest)}），共 ${items.length} 份。如果你之前上传过书，多半是被存在了别的网址下，可以直接从这里找回。` }),
-      el('div', { class: 'row' },
+      el('div', { class: 'small muted', style: { marginBottom: '10px' }, text: `最近一份含 ${latest.books} 本书、${latest.annotations || 0} 条批注、${latest.notes || 0} 条笔记（${describeBackup(latest)}），共 ${usable.length} 份可用备份。如果你之前上传过书，多半是被存在了别的网址下，可以直接从这里找回。` }),
+      el('div', { class: 'row wrap' },
         el('button', {
           class: 'btn primary', text: '恢复最近一次备份',
           on: {
@@ -118,8 +127,27 @@ async function drawRestoreHint() {
             },
           },
         }),
-        el('span', { class: 'small muted', text: '也可以去「设置 → 存档位置与磁盘备份」挑选其他时间点的备份' }),
+        el('button', {
+          class: 'btn ghost', text: '本次忽略',
+          on: {
+            click: () => {
+              restoreDismissedThisSession = true;
+              drawRestoreHint();
+              toast('这次先不提示了，刷新页面后会重新出现');
+            },
+          },
+        }),
+        el('button', {
+          class: 'btn ghost', text: '永久忽略',
+          on: {
+            click: async () => {
+              await store.setUi({ showRestoreHint: false });
+              toast('已永久忽略。想再开启：「设置 → 存档位置与磁盘备份」', 'ok', 4200);
+            },
+          },
+        }),
       ),
+      el('div', { class: 'small muted', style: { marginTop: '8px' }, text: '忽略只是不再提示，备份文件一直保留；随时可在「设置 → 存档位置与磁盘备份」里手动恢复。' }),
     ));
 }
 
@@ -146,7 +174,7 @@ function bookCard(b) {
           class: 'icon-btn', title: '删除', on: {
             click: async e => {
               e.stopPropagation();
-              if (await confirmDialog({ title: `删除《${b.title}》`, message: '这本书的批注、术语与笔记都会一并删除，且无法恢复。' })) {
+              if (await confirmDialog({ title: `删除《${b.title}》`, message: '这本书的批注、术语与笔记都会一并删除，无法撤销。（磁盘备份里仍会保留一份，之后可在「设置 → 存档位置与磁盘备份」里找回。）' })) {
                 await store.deleteBook(b.id); toast('已删除', 'ok');
               }
             },

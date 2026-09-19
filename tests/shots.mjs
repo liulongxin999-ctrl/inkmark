@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import url from 'node:url';
+import { sweepTestBackups } from './_cleanup.mjs';
 
 const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 const outDir = process.argv[2] || path.join(os.tmpdir(), 'inkmark-shots');
@@ -27,7 +28,26 @@ const browser = CANDIDATES.find(p => fs.existsSync(p));
 const server = spawn(process.execPath, [path.join(root, 'server.mjs'), String(PORT)], { cwd: root, stdio: 'ignore' });
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'inkmark-shot-'));
 let proc;
-const finish = async code => { try { server.kill(); } catch {} try { proc?.kill(); } catch {} await sleep(300); try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5 }); } catch {} process.exit(code); };
+
+/* 截图过程会产生磁盘备份，收尾时清掉自己产生的（不动用户已有的） */
+sweepTestBackups();
+const backupDir = path.join(root, 'backups');
+const preexisting = (() => { try { return fs.readdirSync(backupDir); } catch { return []; } })();
+const cleanBackups = () => {
+  try {
+    for (const f of fs.readdirSync(backupDir)) if (!preexisting.includes(f)) fs.unlinkSync(path.join(backupDir, f));
+  } catch {}
+};
+
+const finish = async code => {
+  try { server.kill(); } catch {}
+  try { proc?.kill(); } catch {}
+  await sleep(400);
+  try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5 }); } catch {}
+  cleanBackups();
+  sweepTestBackups();
+  process.exit(code);
+};
 
 for (let i = 0; i < 60; i++) { try { if ((await fetch(`http://localhost:${PORT}/`)).ok) break; } catch {} await sleep(150); }
 proc = spawn(browser, [

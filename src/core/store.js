@@ -16,6 +16,8 @@ const DEFAULT_UI = {
   notesView: 'board',
   highlightColor: '#ffdf7e',
   dailyGoalMin: 45,
+  showRestoreHint: true,   // 书库为空时是否提示"可从磁盘备份恢复"
+  backupMode: 'close',     // close=关闭页面时备份 / hourly=每小时 / manual=仅手动
 };
 
 const TAB_ID = uid('tab');

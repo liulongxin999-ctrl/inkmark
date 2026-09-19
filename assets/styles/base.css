@@ -70,8 +70,15 @@ body.focus-mode.aside-open-with-focus .app{grid-template-columns:0 minmax(0,1fr)
 .rail-btn{
   width:52px;padding:8px 0 6px;border:0;background:transparent;color:var(--muted);
   border-radius:var(--r);display:flex;flex-direction:column;align-items:center;gap:3px;
-  cursor:pointer;font-size:11px;transition:.15s;
+  cursor:pointer;font-size:11px;transition:.15s;position:relative;
 }
+.rail-btn .unsaved{
+  position:absolute;top:7px;right:10px;width:8px;height:8px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 0 2px var(--surface-2);
+}
+.rail-btn .unsaved[hidden]{display:none}
+.rail-btn.saving svg{animation:saveSpin .8s ease}
+@keyframes saveSpin{50%{transform:translateY(-2px)}}
 .rail-btn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .rail-btn:hover{background:var(--surface-3);color:var(--ink)}
 .rail-btn.active{background:var(--surface);color:var(--accent);box-shadow:var(--shadow)}

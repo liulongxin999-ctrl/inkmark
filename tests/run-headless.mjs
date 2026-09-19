@@ -9,6 +9,11 @@ const here = path.dirname(url.fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const PORT = 8799, CDP = 9333;
 
+if (typeof WebSocket === 'undefined') {
+  console.error(`✗ 本测试需要 Node.js 22 或更高版本（自带 WebSocket），当前为 ${process.version}`);
+  process.exit(2);
+}
+
 const CANDIDATES = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',

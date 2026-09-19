@@ -18,6 +18,8 @@
 5. 之后全书里这个词都会自动高亮：**鼠标悬停看释义，点击在右侧栏编辑**
 6. 顶部「笔记」进笔记工作台，卡片可在四列之间拖动；「复习」按遗忘曲线抽卡
 
+> 仓库地址：<https://github.com/liulongxin999-ctrl/inkmark>（私有）
+
 ---
 
 ## 你要的功能，对应在哪里
@@ -65,6 +67,7 @@
 墨读/
   index.html                应用骨架
   启动.bat                  一键启动本地服务并打开浏览器
+  提交并推送.bat            自检 → 提交 → 推送，一步完成
   server.mjs                零依赖本地静态服务器（带端口自动避让）
   示例/                     示例书，可直接拖进书库
   docs/设计方案.md           完整产品与算法设计说明
@@ -103,10 +106,28 @@
 node tests/check-imports.mjs    # 静态检查：导入导出是否匹配
 node tests/run-headless.mjs     # 71 项运行时自检（无头浏览器，真实 IndexedDB）
 node tests/smoke.mjs            # 22 步端到端：上传 → 划选批注 → 术语 → 笔记 → 刷新持久化
+node tests/shots.mjs [输出目录] # 自动截图主要界面，用于视觉验收
 node server.mjs 8765 --open     # 启动本地服务
 ```
 
 代码为原生 ES Modules，**没有构建步骤**，改完刷新浏览器即可生效。
+运行应用只需任意版本的 Node.js；跑上面这些自动化测试需要 **Node.js 22+**（用到了内置 WebSocket）。
+
+### 日常改动的推荐流程
+
+**最简单的方式**：改完代码后双击 `提交并推送.bat`——它会先跑快速自检，再让你写一句改动说明，然后自动提交并推送到 GitHub。
+
+**手动方式**：
+
+```bash
+node tests/check-imports.mjs        # 可选的快速自检
+git add -A
+git commit -m "feat: 说明这次改了什么"
+git push
+```
+
+推送后 GitHub Actions 会自动跑完整测试（配置见 `.github/workflows/ci.yml`），
+在仓库页面的 **Actions** 标签里能看到结果；绿色代表这次改动没有破坏已有功能。
 
 ---
 

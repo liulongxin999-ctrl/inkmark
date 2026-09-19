@@ -9,6 +9,11 @@ const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..'
 const outDir = process.argv[2] || path.join(os.tmpdir(), 'inkmark-shots');
 fs.mkdirSync(outDir, { recursive: true });
 
+if (typeof WebSocket === 'undefined') {
+  console.error(`✗ 本脚本需要 Node.js 22 或更高版本（自带 WebSocket），当前为 ${process.version}`);
+  process.exit(2);
+}
+
 const PORT = 8796, CDP = 9336;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const CANDIDATES = [

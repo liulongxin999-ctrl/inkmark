@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "墨读 InkMark — 电子书实时批注与知识整理工作台（纯静态，无需构建）",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "node tests/check-imports.mjs",
     "test:unit": "node tests/run-headless.mjs",

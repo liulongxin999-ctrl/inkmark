@@ -119,6 +119,7 @@ node tests/smoke.mjs            # 22 步端到端：上传 → 划选批注 → 
 node tests/persistence.mjs      # 存档验证：关闭浏览器 / 强制杀进程后数据是否还在
 node tests/backup.mjs           # 磁盘备份与「换浏览器后一键恢复」验证
 node tests/server-ports.mjs     # 端口策略：绝不静默换端口（防止存档看不见）
+node tests/production-path.mjs  # 生产路径与安全边界：备份接口的访问控制、目录穿越防护
 node tests/shots.mjs [输出目录] # 自动截图主要界面，用于视觉验收
 node server.mjs 8765 --open     # 启动本地服务
 ```

@@ -14,7 +14,8 @@
     "test:persistence": "node tests/persistence.mjs",
     "test:backup": "node tests/backup.mjs",
     "test:ports": "node tests/server-ports.mjs",
-    "test:all": "node tests/check-imports.mjs && node tests/server-ports.mjs && node tests/run-headless.mjs && node tests/smoke.mjs && node tests/persistence.mjs && node tests/backup.mjs",
+    "test:security": "node tests/production-path.mjs",
+    "test:all": "node tests/check-imports.mjs && node tests/server-ports.mjs && node tests/production-path.mjs 8765 && node tests/run-headless.mjs && node tests/smoke.mjs && node tests/persistence.mjs && node tests/backup.mjs",
     "serve": "node server.mjs"
   }
 }

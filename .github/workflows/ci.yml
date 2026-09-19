@@ -36,6 +36,9 @@ jobs:
       - name: 端口策略（绝不静默换端口导致存档不可见）
         run: node tests/server-ports.mjs
 
+      - name: 生产路径与安全边界（8765 实际启动）
+        run: node tests/production-path.mjs 8765
+
       - name: 运行时自检（无头浏览器 + 真实 IndexedDB）
         run: node tests/run-headless.mjs
 

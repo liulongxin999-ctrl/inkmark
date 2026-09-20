@@ -21,7 +21,9 @@
 5. 之后全书里这个词都会自动高亮：**鼠标悬停看释义，点击在右侧栏编辑**
 6. 顶部「笔记」进笔记工作台，卡片可在四列之间拖动；「复习」按遗忘曲线抽卡
 
-> 仓库地址：<https://github.com/liulongxin999-ctrl/inkmark>（私有）
+**带公式和插图的资料怎么读？** 把 `.md` 和 `images/` 文件夹打包成 `.zip` 拖进书库（或点「选择文件夹」）：
+`$...$` 公式会**渲染成真正的数学排版**，插图会**真正显示**并可点击放大。
+扫描版 PDF 想变成可批注的文字，见 [docs/图片型PDF转文字指南.md](docs/图片型PDF转文字指南.md)。
 
 ---
 
@@ -74,47 +76,6 @@
 
 ---
 
-## 私人数据不会被提交到仓库
-
-这个项目会在你日常使用时产生私人数据（含全部批注与笔记）。仓库里已经建好三道防线，
-确保它们**永远不会出现在 GitHub 上**：
-
-**第一道：忽略规则**（`.gitignore`）
-
-```
-backups/              # 磁盘自动备份，含你的书与笔记
-墨读自动备份*.json
-资料/ 导出/ 我的书/    # 你放进项目文件夹的资料
-*.pdf *.epub *.mobi *.azw3   # 电子书原文件（示例/ 目录除外）
-```
-
-实测：把假备份和假电子书放进目录后，`git status` 完全看不见它们。
-
-**第二道：提交前自动检查**（`.githooks/pre-commit`）
-
-每次 `git commit` 前自动运行 `tools/check-no-data.mjs`，四重校验：
-
-1. 忽略规则是否**真的生效**（用 `git check-ignore` 实测，而不是只看有没有写规则）
-2. 被跟踪的文件里有没有备份、电子书、个人资料目录
-3. **暂存区**里有没有——就算用 `git add -f` 强行添加也会被拦下
-4. 文本内容里有没有本机绝对路径、私人邮箱
-
-如果钩子没生效，执行一次即可（`提交并推送.bat` 也会自动帮你开启）：
-
-```bash
-git config core.hooksPath .githooks
-```
-
-**第三道：CI 兜底**（`.github/workflows/ci.yml`）
-
-每次推送到 GitHub 都会重跑一遍检查 + 闸门自身的回归测试（`tests/data-guard.mjs` 会真的
-制造假数据、尝试提交、确认被拦下，然后彻底清理）。就算本地钩子被关掉，CI 也会报警。
-
-> 万一确实需要提交某个被拦下的文件：`git commit --no-verify` 可以跳过钩子——
-> 但请先确认那真的不是你的私人数据。
-
----
-
 ## 目录结构
 
 ```
@@ -131,6 +92,7 @@ git config core.hooksPath .githooks
   .github/workflows/ci.yml  推送后自动跑自检与端到端测试
   assets/styles/            base 设计系统 · reader 正文与标记 · panels 面板与卡片
   assets/vendor/            pdf.js · JSZip · marked（已本地化，离线可用）
+  assets/vendor/katex/      KaTeX 公式渲染引擎（含 20 个字体，离线可用）
   src/core/                 utils 工具 · db 数据库 · store 状态中枢
   src/import/               parsers 五种格式解析（含 GBK 识别、PDF 版面还原）
   src/reader/               anchors 锚定与分段 · marks 标记渲染 · selection 选区交互 · reader 阅读视图
@@ -154,6 +116,13 @@ git config core.hooksPath .githooks
 **写入单点出口。** 所有写库都经过 `store.js`，落盘成功后再广播事件，
 配合 `BroadcastChannel` 让多个标签页实时同步。
 
+**公式是「原子单元」。** 公式用 KaTeX 渲染成真正的数学排版，但在底层，
+每个公式节点仍按它的 LaTeX 源码长度参与字符偏移计算——
+所以「文字 + 公式」混排的段落，划选与批注锚点依然与原文严格一致。
+
+**插图存在本地。** zip / 文件夹导入时，图片以 Blob 形式存进 IndexedDB，
+渲染时换成对象地址，换书或删书时自动释放。
+
 ---
 
 ## 开发者命令
@@ -165,6 +134,7 @@ node tests/smoke.mjs            # 22 步端到端：上传 → 划选批注 → 
 node tests/persistence.mjs      # 存档验证：关闭浏览器 / 强制杀进程后数据是否还在
 node tests/backup.mjs           # 磁盘备份与「换浏览器后一键恢复」验证
 node tests/backup-timing.mjs    # 保存按钮 / Ctrl+S / 关闭时保存 / 数据过大时的询问流程
+node tests/render-rich.mjs      # 公式渲染 / zip 导入插图 / 跨公式批注锚点是否准确
 node tests/server-ports.mjs     # 端口策略：绝不静默换端口（防止存档看不见）
 node tests/production-path.mjs  # 生产路径与安全边界：备份接口的访问控制、目录穿越防护
 node tests/shots.mjs [输出目录] # 自动截图主要界面，用于视觉验收
@@ -194,8 +164,9 @@ git push
 
 ## 已知限制
 
-- 扫描版 PDF 没有文字层，正文无法提取，只能用「原版页」按原始排版阅读。
-- EPUB 中的插图暂以占位符呈现，正文、目录、批注不受影响。
+- 扫描版 PDF 没有文字层，正文无法提取，只能用「原版页」按原始排版阅读（转换办法见上面的指南）。
+- EPUB 中的插图暂以占位符呈现；Markdown 的插图需要以 zip / 文件夹方式导入才会显示。
+- 公式是整体单元，不能在一个公式内部逐字划线（可以整条选中、批注、设为术语）。
 - 复习算法是简化版 SM-2（忘了 / 模糊 / 记住三档），够用但不追求最优排程。
 - 单本书建议在 300 万字以内；超大文件首次解析需要等待进度条走完。
 

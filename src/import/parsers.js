@@ -23,6 +23,7 @@ export function decodeTextBuffer(buf) {
 /* ---------------- 入口 ---------------- */
 export async function parseFile(file, onProgress = () => {}) {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (ext === 'zip') return parseBundle(file, onProgress);
   if (ext === 'pdf') return parsePDF(file, onProgress);
   if (ext === 'epub') return parseEPUB(file, onProgress);
   if (ext === 'md' || ext === 'markdown') return parseMarkdown(file);
@@ -110,6 +111,12 @@ export async function parseText(file, label) {
 /* ---------------- Markdown ---------------- */
 export async function parseMarkdown(file) {
   const raw = decodeTextBuffer(await readAsArrayBuffer(file)).replace(/\r\n?/g, '\n');
+  return markdownToParsed(raw, stripExt(file.name));
+}
+
+/** Markdown 文本 → 统一结构（.md 文件、压缩包、文件夹三种入口共用） */
+export function markdownToParsed(raw, fallbackTitle) {
+  raw = String(raw || '').replace(/\r\n?/g, '\n');
   const sections = [];
   let cur = { title: '', lines: [] };
   for (const line of raw.split('\n')) {
@@ -127,7 +134,7 @@ export async function parseMarkdown(file) {
     blocks: mdToBlocks(s.lines.join('\n'), renderer),
   })).filter(c => c.blocks.length);
 
-  return { title: stripExt(file.name), author: '', format: 'Markdown', chapters: chapters.length ? chapters : [{ title: '正文', level: 1, blocks: [B('p', raw)] }] };
+  return { title: fallbackTitle || '未命名', author: '', format: 'Markdown', chapters: chapters.length ? chapters : [{ title: '正文', level: 1, blocks: [B('p', raw)] }] };
 }
 
 function mdToBlocks(md, marked) {
@@ -166,11 +173,14 @@ function htmlToBlocks(root) {
       if (tag === 'h1') push('h2', child.textContent);
       else if (tag === 'h2') push('h3', child.textContent);
       else if (tag === 'h3' || tag === 'h4' || tag === 'h5' || tag === 'h6') push('h3', child.textContent);
-      else if (tag === 'p') push('p', child.textContent);
+      else if (tag === 'p') pushParagraph(child);
       else if (tag === 'li') push('li', child.textContent);
       else if (tag === 'blockquote') push('q', child.textContent);
       else if (tag === 'pre') push('code', child.textContent);
-      else if (tag === 'img') push('img', child.getAttribute('alt') || '〔图片〕', { src: child.getAttribute('src') || '' });
+      else if (tag === 'img') {
+        const src = child.getAttribute('src') || '';
+        if (src) out.push(B('img', child.getAttribute('alt') || '', { src }));
+      }
       else if (tag === 'hr') push('page', '');
       else if (tag === 'br') continue;
       else if (tag === 'ul' || tag === 'ol' || tag === 'table' || tag === 'thead') walk(child);
@@ -179,6 +189,24 @@ function htmlToBlocks(root) {
   };
   walk(root);
   return out;
+
+  /** 段落里可能夹着图片：按顺序拆成文本块与图片块，不能整段取纯文本把图丢掉 */
+  function pushParagraph(p) {
+    if (!p.querySelector('img')) { push('p', p.textContent); return; }
+    let buf = '';
+    const flush = () => { if (buf.trim()) { push('p', buf); buf = ''; } };
+    for (const node of p.childNodes) {
+      const isImg = node.nodeType === 1 && node.tagName.toLowerCase() === 'img';
+      if (isImg) {
+        flush();
+        const src = node.getAttribute('src') || '';
+        if (src) out.push(B('img', node.getAttribute('alt') || '', { src }));
+      } else {
+        buf += node.textContent || '';
+      }
+    }
+    flush();
+  }
 }
 
 /* ---------------- EPUB ---------------- */
@@ -391,8 +419,80 @@ const stripExt = name => String(name || '').replace(/\.[^.]+$/, '').replace(/[_]
 /** 简易 MIME 判断（用于拖拽） */
 export function guessKind(file) {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
-  if (['pdf', 'epub', 'txt', 'md', 'markdown', 'html', 'htm', 'xhtml', 'text'].includes(ext)) return ext;
+  if (['pdf', 'epub', 'txt', 'md', 'markdown', 'html', 'htm', 'xhtml', 'text', 'zip'].includes(ext)) return ext;
   return '';
+}
+
+/* ---------------- 压缩包 / 文件夹：Markdown + 图片 一起导入 ---------------- */
+
+const IMAGE_RE = /\.(png|jpe?g|webp|gif|bmp|svg)$/i;
+const DOC_RE = /\.(md|markdown)$/i;
+const MIME_OF = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
+  gif: 'image/gif', bmp: 'image/bmp', svg: 'image/svg+xml',
+};
+const mimeOf = name => MIME_OF[(String(name).split('.').pop() || '').toLowerCase()] || 'application/octet-stream';
+const normPath = p => String(p).replace(/\\/g, '/').replace(/^\.\//, '');
+
+/** 选主文档：优先根目录、名字像正文的，排除图片目录 */
+function pickMainDoc(docs) {
+  return docs.map(d => {
+    const p = normPath(d.name);
+    const base = p.toLowerCase();
+    let score = 100 - p.split('/').length * 10;
+    if (/content|result|output|full|book/.test(base)) score += 15;
+    if (/images?\//.test(base)) score -= 50;
+    return { d, score };
+  }).sort((a, b) => b.score - a.score)[0].d;
+}
+
+/** 导入 zip（例如 MinerU 输出的「content.md + images/」打包） */
+export async function parseBundle(file, onProgress = () => {}) {
+  const zip = await window.JSZip.loadAsync(await readAsArrayBuffer(file));
+  const entries = Object.values(zip.files)
+    .filter(e => !e.dir)
+    .filter(e => !/(^|\/)__MACOSX\//.test(e.name))
+    .filter(e => !/(^|\/)\._/.test(normPath(e.name)));
+  const docs = entries.filter(e => DOC_RE.test(e.name));
+  const images = entries.filter(e => IMAGE_RE.test(e.name));
+  if (!docs.length) throw new Error('这个压缩包里没有找到 Markdown 文件（.md）');
+
+  const main = pickMainDoc(docs);
+  const raw = decodeTextBuffer(await main.async('arraybuffer'));
+  const parsed = markdownToParsed(raw, stripExt(file.name));
+
+  const assets = [];
+  for (let i = 0; i < images.length; i++) {
+    onProgress({ phase: 'bundle', done: i + 1, total: images.length });
+    const e = images[i];
+    const blob = await e.async('blob');
+    assets.push({ path: normPath(e.name), blob: blob.slice(0, blob.size, mimeOf(e.name)), type: mimeOf(e.name) });
+  }
+  return { ...parsed, title: parsed.title || stripExt(file.name), assets, meta: { assets: assets.length, bundled: true } };
+}
+
+/** 直接把文件夹拖进来（结构与压缩包一致） */
+export async function parseFolder(fileList, onProgress = () => {}) {
+  const files = Array.from(fileList);
+  const pathOf = f => {
+    const p = normPath(f.webkitRelativePath || f.name);
+    const parts = p.split('/');
+    return parts.length > 1 ? parts.slice(1).join('/') : p;   // 去掉最外层文件夹名
+  };
+  const docs = files.filter(f => DOC_RE.test(f.name)).map(f => ({ name: pathOf(f), file: f }));
+  const images = files.filter(f => IMAGE_RE.test(f.name));
+  if (!docs.length) throw new Error('这个文件夹里没有找到 Markdown 文件（.md）');
+
+  const main = pickMainDoc(docs);
+  const raw = decodeTextBuffer(await readAsArrayBuffer(main.file));
+  const parsed = markdownToParsed(raw, main.file.name.replace(DOC_RE, ''));
+
+  const assets = [];
+  for (let i = 0; i < images.length; i++) {
+    onProgress({ phase: 'bundle', done: i + 1, total: images.length });
+    assets.push({ path: pathOf(images[i]), blob: images[i], type: images[i].type || mimeOf(images[i].name) });
+  }
+  return { ...parsed, assets, meta: { assets: assets.length, bundled: true } };
 }
 
 export { uid };

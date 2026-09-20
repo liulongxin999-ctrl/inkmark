@@ -61,3 +61,6 @@ jobs:
 
       - name: 保存时机与询问流程（保存按钮 / Ctrl+S / 关闭时保存 / 过大的询问）
         run: node tests/backup-timing.mjs
+
+      - name: 公式与插图渲染（KaTeX / zip 导入 / 跨公式批注锚点）
+        run: node tests/render-rich.mjs

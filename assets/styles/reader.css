@@ -21,7 +21,33 @@
   font-family:var(--mono);font-size:.82em;line-height:1.6;background:var(--surface-2);
   border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;overflow:auto;white-space:pre-wrap;
 }
-.blk.img{text-align:center;color:var(--muted);font-size:.85em;font-style:italic}
+.blk.img{margin:1.4em 0}
+
+/* ---- 公式（KaTeX）---- */
+.math-atom{cursor:pointer;white-space:nowrap;transition:background-color .2s}
+.math-atom.math-display{display:block;text-align:center;margin:.7em 0;white-space:normal}
+.math-atom .katex{font-size:1.04em}
+.math-atom[data-hl="on"]{padding:1px 3px;border-radius:4px}
+.math-atom[data-term]:hover{background-color:color-mix(in srgb,var(--term-color,var(--accent-2)) 16%,transparent)}
+.math-atom .katex-error{color:var(--danger);font-family:var(--mono);font-size:.9em}
+
+/* ---- 正文插图 ---- */
+.block-image{margin:0;text-align:center}
+.block-image img{
+  max-width:100%;height:auto;border-radius:var(--r);background:var(--surface-2);
+  box-shadow:0 2px 14px rgba(0,0,0,.10);cursor:zoom-in;
+}
+.block-image img:not([src]){min-height:60px;min-width:180px;background:linear-gradient(100deg,var(--surface-2),var(--surface-3),var(--surface-2))}
+.block-image figcaption{margin-top:7px;font-size:.78em;color:var(--muted);font-family:var(--sans);font-style:normal}
+.img-missing{
+  padding:16px;text-align:center;color:var(--muted);font-size:.82em;font-family:var(--sans);
+  border:1px dashed var(--line-2);border-radius:var(--r);background:var(--surface-2);
+}
+.img-zoom{
+  position:fixed;inset:0;z-index:120;background:rgba(20,15,10,.86);backdrop-filter:blur(4px);
+  display:grid;place-items:center;padding:24px;cursor:zoom-out;animation:fadeIn .16s;
+}
+.img-zoom img{max-width:96vw;max-height:92vh;border-radius:var(--r);box-shadow:0 20px 60px rgba(0,0,0,.5)}
 .blk.page{
   margin:2.4em 0 1.2em;text-align:center;color:var(--muted);font-size:11.5px;
   font-family:var(--sans);letter-spacing:.14em;text-transform:uppercase;

@@ -3,7 +3,8 @@
 import { $, el, svg, ICONS, esc, copyText, debounce, clamp, setChildren } from '../core/utils.js';
 import * as db from '../core/db.js';
 import store from '../core/store.js';
-import { createBlockEl, paintBlock, repaintBlock, bindMarkEvents, flashAnnotation, flashTerm, annKind } from './marks.js';
+import { createBlockEl, paintBlock, repaintBlock, bindMarkEvents, flashAnnotation, flashTerm, annKind, fillImages } from './marks.js';
+import { resolveAssetUrl, clearAssetCache } from '../core/assets.js';
 import { initSelection, bindToolbar, buildAnnotations, collectSelectionRanges, kindName } from './selection.js';
 import { toast, modal, openTermEditor, promptDialog } from '../ui/shell.js';
 
@@ -35,6 +36,17 @@ export function initReader() {
     },
     onHoverMark: sg => selection?.hover(sg),
     onLeaveMark: () => selection?.hideHover(),
+  });
+
+  // 点击正文插图 → 全屏放大查看
+  root.addEventListener('click', e => {
+    const img = e.target.closest?.('.block-image img');
+    if (!img?.getAttribute('src')) return;
+    const box = el('div', {
+      class: 'img-zoom', title: '点击任意处关闭',
+      on: { click: () => box.remove() },
+    }, el('img', { src: img.src, alt: img.alt }));
+    document.body.append(box);
   });
 
   scroll.addEventListener('scroll', debounce(() => {
@@ -166,6 +178,8 @@ export function renderChapter() {
   }
 
   body.replaceChildren(frag);
+  // 图片块：正文先渲染出来，图片地址随后异步补上（本地对象地址）
+  fillImages(body, store.state.bookId, resolveAssetUrl).catch(() => {});
   $('#reader-scroll').scrollTop = 0;
   $('#reader-progress').firstElementChild.style.width = `${(store.state.chapterIndex / Math.max(1, store.state.chapters.length)) * 100}%`;
   renderTopbar();

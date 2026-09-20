@@ -33,7 +33,7 @@ export function findTermMatches(text, terms, { minLen = 2 } = {}) {
  * 一次边界扫描，把「批注区间」和「术语区间」切成互不重叠的最小片段。
  * 片段文本首尾相接严格等于原文，因此字符偏移永远有效。
  */
-export function segmentBlock(text, anns = [], termMatches = []) {
+export function segmentBlock(text, anns = [], termMatches = [], atomicRuns = []) {
   const n = text.length;
   const points = new Set([0, n]);
   for (const a of anns) {
@@ -41,8 +41,13 @@ export function segmentBlock(text, anns = [], termMatches = []) {
     if (e > s) { points.add(s); points.add(e); }
   }
   for (const t of termMatches) { points.add(t.start); points.add(t.end); }
+  // 公式是原子单元：把它的首尾也作为边界
+  for (const r of atomicRuns) { points.add(r.start); points.add(r.end); }
 
-  const pts = Array.from(points).sort((a, b) => a - b);
+  let pts = Array.from(points).filter(p => p >= 0 && p <= n).sort((a, b) => a - b);
+  // 原子单元内部不允许被切开，否则公式会被渲染成几块
+  if (atomicRuns.length) pts = pts.filter(p => !atomicRuns.some(r => p > r.start && p < r.end));
+
   const segs = [];
   for (let i = 0; i < pts.length - 1; i++) {
     const s = pts[i], e = pts[i + 1];
@@ -50,9 +55,10 @@ export function segmentBlock(text, anns = [], termMatches = []) {
     const annIds = [];
     for (const a of anns) if (a.start <= s && a.end >= e) annIds.push(a.id);
     const tm = termMatches.find(t => t.start <= s && t.end >= e) || null;
+    const math = atomicRuns.find(r => r.start === s && r.end === e) || null;
     segs.push({
       start: s, end: e, text: text.slice(s, e),
-      annIds, termId: tm ? tm.termId : null, termEnd: tm ? tm.end : -1,
+      annIds, termId: tm ? tm.termId : null, termEnd: tm ? tm.end : -1, math,
     });
   }
   return segs;
@@ -100,10 +106,47 @@ export function resolveRange(text, anchor) {
 /** 把锚点区间与正文比对，标出是否已失效 */
 export const anchorValid = (text, ann) => text.slice(ann.start, ann.end) === ann.quote;
 
-/** 选区在一个块内的字符偏移（依赖 Range.toString 的长度） */
+const childIndex = el => Array.prototype.indexOf.call(el.parentNode?.childNodes || [], el);
+
+/**
+ * 选区端点如果落在公式内部，吸附到公式边界。
+ * 公式渲染后的字形与原始 LaTeX 不是一一对应，所以只能整条处理。
+ */
+export function snapOutOfAtom(node, offset, side = 'start') {
+  const el = node?.nodeType === 1 ? node : node?.parentElement;
+  const atom = el?.closest?.('.math-atom');
+  if (!atom?.parentNode) return { node, offset };
+  const i = childIndex(atom);
+  return side === 'end'
+    ? { node: atom.parentNode, offset: i + 1 }
+    : { node: atom.parentNode, offset: i };
+}
+
+/**
+ * 选区在一个块内的字符偏移。
+ * 关键：公式节点按其 LaTeX 源码长度计数，保证偏移始终对应"逻辑文本"，
+ * 这样批注锚点在任何渲染方式下都不会错位。
+ */
 export function offsetInElement(rootEl, node, offset) {
   const r = document.createRange();
   r.setStart(rootEl, 0);
   try { r.setEnd(node, offset); } catch { return null; }
-  return r.toString().length;
+  return logicalLength(r);
+}
+
+function logicalLength(range) {
+  let frag;
+  try { frag = range.cloneContents(); } catch { return range.toString().length; }
+  let len = 0;
+  const walk = n => {
+    for (const c of n.childNodes) {
+      if (c.nodeType === 3) len += c.data.length;
+      else if (c.nodeType === 1) {
+        if (c.classList?.contains('math-atom')) len += (c.dataset.src || '').length;
+        else walk(c);
+      }
+    }
+  };
+  walk(frag);
+  return len;
 }

@@ -1,7 +1,7 @@
 /* IndexedDB 薄封装：所有持久化的唯一出口 */
 
 const DB_NAME = 'inkmark';
-const DB_VERSION = 1;
+const DB_VERSION = 2;      // v2：新增 assets（导入的 Markdown 里引用的图片）
 
 const SCHEMA = {
   books: { keyPath: 'id', indexes: [['lastReadAt', 'lastReadAt']] },
@@ -11,6 +11,7 @@ const SCHEMA = {
   notes: { keyPath: 'id', indexes: [['status', 'status'], ['bookId', 'bookId']] },
   bookmarks: { keyPath: 'id', indexes: [['bookId', 'bookId']] },
   files: { keyPath: 'id', indexes: [['bookId', 'bookId']] },
+  assets: { keyPath: 'id', indexes: [['bookId', 'bookId']] },
   stats: { keyPath: 'day', indexes: [] },
   settings: { keyPath: 'key', indexes: [] },
 };
@@ -84,13 +85,14 @@ export function delMany(store, keys) {
 
 /** 删除一本书及其全部关联数据 */
 export async function deleteBookCascade(bookId) {
-  const [chs, anns, terms, notes, bms, files] = await Promise.all([
+  const [chs, anns, terms, notes, bms, files, assets] = await Promise.all([
     getAllBy('chapters', 'bookId', bookId),
     getAllBy('annotations', 'bookId', bookId),
     getAllBy('terms', 'bookId', bookId),
     getAllBy('notes', 'bookId', bookId),
     getAllBy('bookmarks', 'bookId', bookId),
     getAllBy('files', 'bookId', bookId),
+    getAllBy('assets', 'bookId', bookId),
   ]);
   await tx(Object.keys(SCHEMA), 'readwrite', s => {
     chs.forEach(c => s.chapters.delete(c.id));
@@ -99,6 +101,7 @@ export async function deleteBookCascade(bookId) {
     notes.forEach(n => s.notes.delete(n.id));
     bms.forEach(b => s.bookmarks.delete(b.id));
     files.forEach(f => s.files.delete(f.id));
+    assets.forEach(a => s.assets.delete(a.id));
     s.books.delete(bookId);
   });
 }
@@ -112,7 +115,9 @@ export async function wipeAll() {
 export async function exportAll() {
   const out = { app: 'inkmark', version: DB_VERSION, exportedAt: Date.now(), data: {} };
   for (const name of Object.keys(SCHEMA)) {
-    if (name === 'files') continue; // 原文件不入备份，避免体积爆炸
+    // 二进制资源（原文件、导入 Markdown 的插图）不进 JSON 备份：
+    // 体积会爆炸，而且 Blob 序列化后会变成空对象，等于白存
+    if (name === 'files' || name === 'assets') continue;
     out.data[name] = await getAll(name);
   }
   return out;
@@ -120,7 +125,9 @@ export async function exportAll() {
 
 export async function importAll(payload) {
   if (!payload?.data) throw new Error('备份文件格式不正确');
-  await wipeAll();
+  // 只清空数据类 store；二进制资源保留下来，这样恢复自己的备份后插图依然显示
+  const dataStores = Object.keys(SCHEMA).filter(n => n !== 'files' && n !== 'assets');
+  await tx(dataStores, 'readwrite', s => { for (const n of dataStores) s[n].clear(); });
   for (const [name, rows] of Object.entries(payload.data)) {
     if (!SCHEMA[name] || !Array.isArray(rows) || !rows.length) continue;
     await putMany(name, rows);

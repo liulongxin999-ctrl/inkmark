@@ -2,7 +2,7 @@
 
 import { $, el, svg, ICONS, HL_COLORS, uid, clamp, esc, debounce, setChildren } from '../core/utils.js';
 import store from '../core/store.js';
-import { offsetInElement, describeRange } from './anchors.js';
+import { offsetInElement, describeRange, snapOutOfAtom } from './anchors.js';
 import { annKind } from './marks.js';
 
 let toolbar = null;
@@ -23,11 +23,21 @@ export function collectSelectionRanges(range, root) {
   const out = [];
   for (let k = lo; k <= hi; k++) {
     const be = blocks[k];
-    const text = be.textContent || '';
+    // 逻辑文本：含公式时 textContent 是渲染后的字形，必须用原始源码
+    const text = be.dataset.src ?? be.textContent ?? '';
     const type = Array.from(be.classList).find(c => ['page', 'img'].includes(c));
     let s = 0, e = text.length;
-    if (k === i) { const o = offsetInElement(be, range.startContainer, range.startOffset); if (o != null) s = o; }
-    if (k === j) { const o = offsetInElement(be, range.endContainer, range.endOffset); if (o != null) e = o; }
+    if (k === i) {
+      // 端点落在公式内部时吸附到公式边界（公式整体选中）
+      const p = snapOutOfAtom(range.startContainer, range.startOffset, 'start');
+      const o = offsetInElement(be, p.node, p.offset);
+      if (o != null) s = o;
+    }
+    if (k === j) {
+      const p = snapOutOfAtom(range.endContainer, range.endOffset, 'end');
+      const o = offsetInElement(be, p.node, p.offset);
+      if (o != null) e = o;
+    }
     if (k === i && k === j) { /* 单块 */ }
     s = clamp(s, 0, text.length); e = clamp(e, 0, text.length);
     if (e <= s) continue;

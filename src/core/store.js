@@ -108,8 +108,9 @@ export const store = {
   async setUi(patch) {
     Object.assign(this.ui, patch);
     this.applyUi();
-    await db.put('settings', { key: 'ui', value: { ...this.ui } });
+    // 先让界面立刻响应（设置项不该等一次磁盘写入才生效），再落盘
     this.bus.emit('ui', patch);
+    await db.put('settings', { key: 'ui', value: { ...this.ui } });
   },
 
   /* ---------- 路由 ---------- */
@@ -156,6 +157,15 @@ export const store = {
         await db.put('files', { id: bookId, bookId, name: file.name, type: file.type, size: file.size, blob: file, savedAt: Date.now() });
       } catch (e) { console.warn('原文件过大，未能留档：', e); }
     }
+    // 压缩包/文件夹导入的图片资源：存本地，供正文里的图片显示
+    if (parsed.assets?.length) {
+      const rows = parsed.assets.map((a, i) => ({
+        id: `${bookId}#asset${i}`, bookId, path: a.path, type: a.type || 'application/octet-stream',
+        size: a.blob?.size || 0, blob: a.blob,
+      }));
+      for (let i = 0; i < rows.length; i += 20) await db.putMany('assets', rows.slice(i, i + 20));
+      await db.put('books', { ...book, assetCount: rows.length });
+    }
     await this.loadBooks();
     this.broadcast(['books']);
     return book;
@@ -189,6 +199,11 @@ export const store = {
   async openBook(id, chapterIndex = null) {
     const book = await db.get('books', id);
     if (!book) return;
+    if (this.state.bookId && this.state.bookId !== id) {
+      // 换书时释放上一本书的图片对象地址
+      const { clearAssetCache } = await import('./assets.js');
+      clearAssetCache(this.state.bookId);
+    }
     this.state.bookId = id;
     this.state.book = book;
     const chs = await db.getAllBy('chapters', 'bookId', id);

@@ -136,12 +136,13 @@ await t('Markdown：标题分层与内联标记清理', async () => {
 });
 
 await t('HTML：标题、引用、图片占位', async () => {
-  const html = '<html><head><title>网页名</title></head><body><h1>标题</h1><p>段落</p><blockquote>引用句</blockquote><img alt="示意图"></body></html>';
+  const html = '<html><head><title>网页名</title></head><body><h1>标题</h1><p>段落</p><blockquote>引用句</blockquote><p><img src="images/fig1.png" alt="示意图"></p></body></html>';
   const parsed = await parseHTML(new File([html], 'p.html'));
   eq(parsed.title, '网页名', '取 title 作为书名');
   const blocks = parsed.chapters[0].blocks;
   truthy(blocks.some(b => b.t === 'q' && b.x === '引用句'), '引用块被识别', '缺少引用块');
-  truthy(blocks.some(b => b.t === 'img' && b.x === '示意图'), '图片用 alt 占位', '缺少图片块');
+  truthy(blocks.some(b => b.t === 'img' && b.src === 'images/fig1.png'), '夹杂在段落里的图片被单独取出', '缺少图片块');
+  truthy(blocks.some(b => b.t === 'img' && b.x === '示意图'), '图片保留 alt 作为图注', '丢掉 alt');
 });
 
 /* ---------------- 3. 渲染 ---------------- */

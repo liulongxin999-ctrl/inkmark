@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import url from 'node:url';
 import { sweepTestBackups } from './_cleanup.mjs';
+import { richZipExpression } from './_fixtures.mjs';
 
 const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 const outDir = process.argv[2] || path.join(os.tmpdir(), 'inkmark-shots');
@@ -129,6 +130,15 @@ await shot('08-复习卡片');
 
 await evalJs("window.__ink.store.go('settings')");
 await shot('09-设置');
+
+/* 公式与插图：导入一份带 LaTeX 公式和插图的 Markdown 压缩包 */
+await evalJs("window.__ink.store.go('library')");
+await evalJs(richZipExpression('第2章-带插图.zip'), true);
+for (let i = 0; i < 40; i++) { if ((await evalJs("document.querySelectorAll('.book-card').length")) >= 2) break; await sleep(250); }
+await sleep(500);
+await evalJs("document.querySelector('.book-card').click()");
+await sleep(1200);
+await shot('10-公式与插图');
 
 ws.close();
 await finish(0);

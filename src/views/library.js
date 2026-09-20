@@ -2,7 +2,7 @@
 
 import { $, el, svg, ICONS, fmtNum, relTime, downloadText, clamp, setChildren } from '../core/utils.js';
 import * as db from '../core/db.js';
-import { parseFile, guessKind } from '../import/parsers.js';
+import { parseFile, guessKind, parseFolder } from '../import/parsers.js';
 import store from '../core/store.js';
 import { modal, toast, confirmDialog, promptDialog } from '../ui/shell.js';
 import { backup, listBackups, restoreFrom, describeBackup } from '../core/backup.js';
@@ -25,9 +25,13 @@ export function renderLibrary() {
   const goal = store.ui.dailyGoalMin || 45;
 
   const fileInput = el('input', {
-    type: 'file', multiple: true, accept: '.pdf,.epub,.txt,.md,.markdown,.html,.htm,.xhtml',
+    type: 'file', multiple: true, accept: '.pdf,.epub,.txt,.md,.markdown,.html,.htm,.xhtml,.zip',
     style: { display: 'none' },
     on: { change: e => { handleFiles(Array.from(e.target.files)); e.target.value = ''; } },
+  });
+  const dirInput = el('input', {
+    type: 'file', webkitdirectory: '', directory: '', style: { display: 'none' },
+    on: { change: e => { importFolder(Array.from(e.target.files)); e.target.value = ''; } },
   });
 
   const dz = el('div', {
@@ -38,13 +42,23 @@ export function renderLibrary() {
       dragleave: () => dz.classList.remove('over'),
       drop: e => {
         e.preventDefault(); dz.classList.remove('over');
-        handleFiles(Array.from(e.dataTransfer.files));
+        handleDrop(e.dataTransfer);
       },
     },
   },
     el('div', { class: 'dz-icon', text: '⇪' }),
     el('div', { class: 'dz-main', text: '把电子书拖到这里，或点击选择文件' }),
     el('div', { class: 'small', style: { marginTop: '4px' }, text: '支持 PDF · EPUB · TXT · Markdown · HTML，可一次选多本' }),
+    el('div', { class: 'small', style: { marginTop: '2px' } },
+      '带插图的 Markdown：把 ',
+      el('code', { text: '.md + images 文件夹' }),
+      ' 打包成 .zip 拖进来，或',
+      (() => {
+        const a = el('a', { href: '#', style: { marginLeft: '2px' }, text: '选择文件夹' });
+        a.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); dirInput.click(); });
+        return a;
+      })(),
+      '（这样插图会真正显示出来）'),
   );
 
   setChildren(view, el('div', { class: 'page-scroll' },
@@ -63,6 +77,7 @@ export function renderLibrary() {
       ),
     ),
     fileInput,
+    dirInput,
     dz,
     restoreHint(),
     books.length
@@ -252,6 +267,57 @@ async function handleFiles(files) {
   progress.close();
   importing = false;
   if (ok) toast(`成功导入 ${ok} 本书${skipped ? `，跳过 ${skipped} 个不支持的文件` : ''}`, 'ok', 3400);
+}
+
+/** 拖进来的可能是文件夹：把它递归读成带相对路径的文件列表 */
+async function handleDrop(dt) {
+  const items = Array.from(dt?.items || []);
+  const entries = items.map(i => i.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.some(e => e.isDirectory)) return handleFiles(Array.from(dt.files || []));
+
+  const out = [];
+  const walk = async (entry, prefix) => {
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej));
+      try { Object.defineProperty(file, 'webkitRelativePath', { value: prefix + entry.name }); } catch {}
+      out.push(file);
+      return;
+    }
+    if (entry.isDirectory) {
+      const reader = entry.createReader();
+      for (;;) {
+        const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        for (const c of batch) await walk(c, `${prefix}${entry.name}/`);
+      }
+    }
+  };
+  for (const e of entries) await walk(e, '');
+  return importFolder(out);
+}
+
+/** 导入「Markdown + 图片」的文件夹 */
+async function importFolder(files) {
+  if (importing) return toast('正在导入上一批文件，请稍候', 'err');
+  if (!files?.length) return;
+  importing = true;
+  const progress = showImportModal();
+  try {
+    progress.set('正在读取文件夹…', 0.2);
+    const parsed = await parseFolder(files, p => {
+      if (p.phase === 'bundle') progress.set(`正在读取插图（${p.done}/${p.total}）`, 0.2 + (p.done / p.total) * 0.7);
+    });
+    if (!parsed.chapters?.length) throw new Error('没有解析到正文');
+    await store.addBook(parsed, null);
+    progress.close();
+    toast(`已导入《${parsed.title}》${parsed.meta?.assets ? `，含 ${parsed.meta.assets} 张插图` : ''}`, 'ok', 3600);
+  } catch (e) {
+    console.error(e);
+    progress.close();
+    toast(`导入失败：${e.message}`, 'err', 5200);
+  } finally {
+    importing = false;
+  }
 }
 
 function showImportModal() {

@@ -2,6 +2,7 @@
 
 import { el } from '../core/utils.js';
 import { findTermMatches, segmentBlock, primaryAnnotation } from './anchors.js';
+import { findMathRuns, hasMath, renderMath } from './math.js';
 
 const TAG = { h2: 'h2', h3: 'h3', p: 'p', li: 'div', q: 'blockquote', code: 'pre', img: 'div', page: 'div', hr: 'div' };
 
@@ -22,12 +23,15 @@ export function createBlockEl(block) {
 export function paintBlock(node, block, anns, terms, ui) {
   const text = block.x || '';
   if (block.t === 'page') { node.textContent = text; return; }
-  if (block.t === 'img') { node.textContent = text || '〔图片〕'; return; }
+  if (block.t === 'img') { paintImage(node, block); return; }
 
+  // 记住"逻辑文本"：选区的字符偏移始终以它为准（公式按 LaTeX 源码长度计数）
+  node.dataset.src = text;
   const termMatches = ui.autoTermHighlight ? findTermMatches(text, terms, { minLen: ui.minTermLen }) : [];
-  if (!anns.length && !termMatches.length) { node.textContent = text; return; }
+  const mathRuns = hasMath(text) ? findMathRuns(text) : [];
+  if (!anns.length && !termMatches.length && !mathRuns.length) { node.textContent = text; return; }
 
-  const segs = segmentBlock(text, anns, termMatches);
+  const segs = segmentBlock(text, anns, termMatches, mathRuns);
   const annsById = new Map(anns.map(a => [a.id, a]));
   const noteEndOffsets = new Set(anns.filter(a => (a.note || '').trim()).map(a => a.end));
   const termById = new Map((terms || []).map(t => [t.id, t]));
@@ -36,7 +40,16 @@ export function paintBlock(node, block, anns, terms, ui) {
   for (const seg of segs) {
     const span = document.createElement('span');
     span.className = 'sg';
-    span.textContent = seg.text;
+    if (seg.math) {
+      // 公式是原子单元：整体渲染，整条可批注
+      span.classList.add('math-atom');
+      if (seg.math.display) span.classList.add('math-display');
+      span.dataset.src = seg.math.src;
+      span.title = '公式 · 点击可批注（整条选中）';
+      renderMath(span, seg.math.latex, seg.math.display);
+    } else {
+      span.textContent = seg.text;
+    }
 
     if (seg.termId) {
       span.dataset.term = seg.termId;
@@ -62,6 +75,20 @@ export function paintBlock(node, block, anns, terms, ui) {
     frag.append(span);
   }
   node.replaceChildren(frag);
+}
+
+/** 图片块：渲染出真正的图片，异步填充图片地址 */
+function paintImage(node, block) {
+  const wrap = document.createElement('figure');
+  wrap.className = 'block-image';
+  const img = document.createElement('img');
+  img.alt = block.x || '插图';
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.dataset.asset = block.src || '';
+  wrap.append(img);
+  if (block.x && block.src) wrap.append(el('figcaption', { text: block.x }));
+  node.replaceChildren(wrap);
 }
 
 /** 重新绘制某个块（正文局部刷新，避免整章重排） */
@@ -98,6 +125,22 @@ export function flashTerm(container, termId, nth = 0) {
   target.classList.add('term-hit');
   setTimeout(() => target.classList.remove('term-hit'), 2300);
   return true;
+}
+
+/** 章节渲染完后，把图片块的地址补上（data: 直接用，其余从本地资源里取） */
+export async function fillImages(root, bookId, resolve) {
+  const imgs = Array.from(root.querySelectorAll('.block-image img[data-asset]'));
+  await Promise.all(imgs.map(async img => {
+    const key = img.dataset.asset;
+    if (img.dataset.filled) return;
+    try {
+      const url = await resolve(bookId, key);
+      if (url) { img.src = url; img.dataset.filled = '1'; }
+      else { img.replaceWith(el('div', { class: 'img-missing', text: `〔插图缺失：${key || '未提供路径'}〕` })); }
+    } catch {
+      img.replaceWith(el('div', { class: 'img-missing', text: '〔插图读取失败〕' }));
+    }
+  }));
 }
 
 /** 列出术语在正文中的出现位置（用于术语卡「出处」） */

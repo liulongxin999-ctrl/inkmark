@@ -67,7 +67,17 @@ python --version                                                    # Python 版
 pip install uv
 ```
 
-如果系统里没有可用的 pip，改用官方的一键脚本（见 <https://docs.astral.sh/uv/>），或直接下 Python 3.12 再装。
+如果 `pip` 命令不在 PATH 里（提示"不是内部或外部命令"），但 Python 可用，就用：
+
+```powershell
+python -m pip install uv
+```
+
+也可以直接用官方一键脚本，或跳过 uv、用全局 pip 安装（见 <https://docs.astral.sh/uv/>）：
+
+```powershell
+python -m pip install "mineru>=4.0,<5"
+```
 
 然后安装 MinerU（**默认装法即可开箱即用**：小模型走 ONNX CPU，VLM 走 llama.cpp 的 Vulkan 模式，兼容性最好）：
 

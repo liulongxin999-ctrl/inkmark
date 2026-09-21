@@ -201,6 +201,54 @@ async function saveBackup(req, res) {
 /* ---------------- 请求处理 ---------------- */
 let actualPort = PORT;
 
+/** 把对话请求转发给配置的服务商，原样流式回传。
+    服务端不保存任何对话内容；Key 也只在这里用，不下发给页面。 */
+async function proxyChat(req, res) {
+  if (!trusted(req)) return json(res, 403, { ok: false, error: '不接受的请求来源' });
+  const cfg = readAiConfig();
+  if (!cfg?.apiKey) return json(res, 400, { ok: false, error: '还没有配置 API Key' });
+
+  let payload;
+  try { payload = JSON.parse((await readBody(req)).toString('utf8') || '{}'); }
+  catch { return json(res, 400, { ok: false, error: '请求体不是合法 JSON' }); }
+  if (!Array.isArray(payload.messages) || !payload.messages.length) {
+    return json(res, 400, { ok: false, error: 'messages 不能为空' });
+  }
+
+  let up;
+  try {
+    up = await fetch(`${cfg.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({
+        model: cfg.model,
+        messages: payload.messages,
+        stream: payload.stream !== false,
+      }),
+    });
+  } catch (e) {
+    return json(res, 502, { ok: false, error: `连不上模型服务：${e.message}` });
+  }
+
+  if (!up.ok) {
+    let detail = '';
+    try { detail = (await up.text()).slice(0, 300); } catch { /* 读不到就算了 */ }
+    const hint = up.status === 401 ? 'API Key 无效或已失效'
+      : up.status === 402 ? '账户余额不足'
+      : up.status === 429 ? '请求太频繁，稍后再试'
+      : `模型服务返回 ${up.status}`;
+    return json(res, up.status, { ok: false, error: hint, detail });
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  for await (const chunk of up.body) res.write(chunk);
+  res.end();
+}
+
 const server = http.createServer(async (req, res) => {
   let p = '/';
   try { p = decodeURIComponent(new URL(req.url, `http://localhost:${actualPort}`).pathname); } catch { /* 异常 URL 忽略 */ }
@@ -251,6 +299,8 @@ const server = http.createServer(async (req, res) => {
       return json(res, 400, { ok: false, error: e.message });
     }
   }
+
+  if (p === '/__ai/chat' && req.method === 'POST') return proxyChat(req, res);
 
   /* 静态文件 */
   let file = path.join(root, p === '/' ? 'index.html' : p);

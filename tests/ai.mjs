@@ -123,6 +123,32 @@ const raw = fs.existsSync(AI_CONFIG) ? fs.readFileSync(AI_CONFIG, 'utf8') : '';
 step('Key 落在隔离的临时配置文件里', raw.includes(TEST_KEY));
 step('真实 ai.local.json 没有被创建', !fs.existsSync(REAL_AI_CONFIG));
 
+/* ---------- 流式转发 ---------- */
+hits.length = 0;
+const chatRes = await fetch(`http://localhost:${APP_PORT}/__ai/chat`, {
+  method: 'POST', headers: H,
+  body: JSON.stringify({ messages: [{ role: 'user', content: '你好' }], stream: true }),
+});
+const streamed = await chatRes.text();
+step('chat 接口返回 200', chatRes.status === 200, `HTTP ${chatRes.status}`);
+step('流式内容被完整转发',
+  streamed.includes('这是') && streamed.includes('流式') && streamed.includes('回答'), streamed.slice(0, 60));
+step('确实打到了配置里的 baseUrl',
+  hits.length === 1 && String(hits[0]?.url).includes('/chat/completions'), String(hits[0]?.url));
+step('转发时带上了 Authorization',
+  String(hits[0]?.auth) === `Bearer ${TEST_KEY}`, String(hits[0]?.auth).slice(0, 12) + '…');
+step('转发时带上了配置的模型', hits[0]?.body?.model === 'deepseek-flash', String(hits[0]?.body?.model));
+step('转发时原样带上了消息', hits[0]?.body?.messages?.[0]?.content === '你好', JSON.stringify(hits[0]?.body?.messages));
+
+/* ---------- 未配置时报错清晰 ---------- */
+fs.rmSync(AI_CONFIG, { force: true });
+const noCfg = await getJson(`http://localhost:${APP_PORT}/__ai/chat`, {
+  method: 'POST', headers: H,
+  body: JSON.stringify({ messages: [{ role: 'user', content: '你好' }] }),
+});
+step('未配置 Key 时返回 400', noCfg.status === 400, `HTTP ${noCfg.status}`);
+step('未配置时提示是中文且明确', /Key/.test(noCfg.body?.error || ''), String(noCfg.body?.error));
+
 /* ---------- 输出 ---------- */
 const C = { ok: '\u001b[32m', fail: '\u001b[31m', reset: '\u001b[0m', dim: '\u001b[90m' };
 console.log('\nAI 助手端到端回归\n');

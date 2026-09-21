@@ -132,6 +132,7 @@ node tests/run-headless.mjs     # 72 项运行时自检（无头浏览器，真�
 node tests/smoke.mjs            # 25 步端到端：上传 → 划选批注 → 术语 → 笔记 → 刷新持久化
 node tests/persistence.mjs      # 存档验证：关闭浏览器 / 强制杀进程后数据是否还在
 node tests/backup.mjs           # 磁盘备份与「换浏览器后一键恢复」验证
+node tests/backup-trim.mjs      # 备份保留策略：每个来源地址各留 12 份，互不挤占
 node tests/backup-timing.mjs    # 保存按钮 / Ctrl+S / 关闭时保存 / 数据过大时的询问流程
 node tests/render-rich.mjs      # 公式渲染 / zip 导入插图 / 跨公式批注锚点是否准确
 node tests/server-ports.mjs     # 端口策略：绝不静默换端口（防止存档看不见）

@@ -11,6 +11,7 @@ import url from 'node:url';
 const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 const BACKUP_DIR = path.join(root, 'backups');
 const TEST_PORT = /localhost:(879\d)/;
+const TEST_MARK = /^INKMARK-(GUARD|TRIM)-TEST/;   // 测试自己造的假备份的固定前缀
 
 export function sweepTestBackups(verbose = false) {
   let n = 0;
@@ -18,6 +19,9 @@ export function sweepTestBackups(verbose = false) {
     for (const f of fs.readdirSync(BACKUP_DIR)) {
       if (f === 'index.json' || !f.endsWith('.json')) continue;
       const full = path.join(BACKUP_DIR, f);
+      // 1) 按固定前缀：测试造的假备份，无论里面写了什么来源都清掉
+      if (TEST_MARK.test(f)) { try { fs.unlinkSync(full); n++; continue; } catch {} }
+      // 2) 按来源地址：测试端口写出来的备份
       try {
         const j = JSON.parse(fs.readFileSync(full, 'utf8'));
         if (TEST_PORT.test(j.origin || '')) { fs.unlinkSync(full); n++; }

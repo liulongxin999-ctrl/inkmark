@@ -19,7 +19,12 @@ const ALLOW_PORT_CHANGE = args.includes('--allow-port-change');
 // 只绑定本机回环地址：同一 Wi-Fi 下的其他设备无法访问你的墨读
 const HOST = '127.0.0.1';
 
-const BACKUP_DIR = path.join(root, 'backups');
+// 备份目录：默认就是项目里的 backups/。
+// 自动化测试用 INKMARK_BACKUP_DIR 把它指到临时目录，
+// 这样测试怎么写都碰不到你真实的备份。
+const BACKUP_DIR = process.env.INKMARK_BACKUP_DIR
+  ? path.resolve(process.env.INKMARK_BACKUP_DIR)
+  : path.join(root, 'backups');
 const INDEX_FILE = 'index.json';        // 备份摘要（文件数、含几本书几条例句），避免每次都解析大文件
 const MAX_BACKUPS = 12;
 const MAX_BODY = 256 * 1024 * 1024;   // 单次备份上限 256MB
@@ -123,8 +128,13 @@ function listBackups() {
   return out;
 }
 
-function trimBackups() {
-  for (const f of listFiles().slice(MAX_BACKUPS)) {
+/** 只清理「同一个来源地址」的旧备份。
+    不同网址写出来的备份互不挤占：你日常用 http://localhost:8765/，
+    自动化测试跑在 879x，如果按时间一刀切保留最新 12 份，
+    测试写出的备份就会把你的真实备份挤掉，而且再也找不回来。 */
+function trimBackups(origin = '') {
+  const same = listBackups().filter(b => (b.origin || '') === origin);
+  for (const f of same.slice(MAX_BACKUPS)) {
     try { fs.unlinkSync(path.join(BACKUP_DIR, f.name)); } catch {}
   }
 }
@@ -148,10 +158,13 @@ async function saveBackup(req, res) {
     const idx = readIndex();
     idx[name] = summarize(name);
     writeIndex(idx);
-    trimBackups();
-    const count = listBackups().length;
-    console.log(`[备份] 已写入 ${name}（${(buf.length / 1024).toFixed(1)} KB，保留最新 ${count} 份）`);
-    return json(res, 200, { ok: true, name, count, dir: BACKUP_DIR });
+    // 每个来源地址各留 MAX_BACKUPS 份
+    const origin = data.origin || req.headers.origin || '';
+    trimBackups(origin);
+    const all = listBackups();
+    const mine = all.filter(b => (b.origin || '') === origin).length;
+    console.log(`[备份] 已写入 ${name}（${(buf.length / 1024).toFixed(1)} KB，来自 ${origin || '未知来源'}，该地址共 ${mine} 份）`);
+    return json(res, 200, { ok: true, name, count: all.length, dir: BACKUP_DIR });
   } catch (e) {
     console.error('[备份] 写入失败：', e.message);
     return json(res, 500, { ok: false, error: e.message });

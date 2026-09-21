@@ -5,6 +5,7 @@ import { decodeTextBuffer, parseText, parseMarkdown, parseHTML } from '../src/im
 import { createBlockEl, paintBlock } from '../src/reader/marks.js';
 import * as db from '../src/core/db.js';
 import store from '../src/core/store.js';
+import { buildRequest, extractTerm, parseSseChunk } from '../src/core/ai.js';
 
 const out = [];
 let pass = 0, fail = 0;
@@ -256,6 +257,101 @@ await t('建立书籍 → 打开 → 写批注 → 建术语 → 收笔记 → �
   await store.removeTerm(term.id);
   await store.removeTerm(gt.id);
   eq(store.state.books.some(b => b.id === book.id), false, '测试数据清理完成');
+});
+
+/* ---------------- 9. AI 上下文组装 ---------------- */
+group('AI 上下文组装');
+
+await t('精简档：只发书名、章节、选段与所在段落', () => {
+  const chapter = { title: '第一章 记忆的机制', blocks: [
+    { id: 'b1', t: 'p', x: '第一段，与本次提问无关。' },
+    { id: 'b2', t: 'p', x: '工作记忆是认知活动的临时工作台，容量有限。' },
+    { id: 'b3', t: 'p', x: '第三段。' },
+  ] };
+  const out2 = buildRequest({
+    book: { title: '示例书' }, chapter,
+    selection: { blockId: 'b2', quote: '临时工作台' },
+    terms: [], ui: { aiIncludeTerms: true }, history: [], question: '这是什么意思？', level: 'brief',
+  });
+  const joined = out2.messages.map(m => m.content).join('\n');
+  truthy(joined.includes('示例书'), '带上书名');
+  truthy(joined.includes('第一章 记忆的机制'), '带上章节标题');
+  truthy(joined.includes('临时工作台'), '带上选段');
+  truthy(joined.includes('容量有限'), '带上所在段落全文');
+  truthy(!joined.includes('第一段'), '不带无关段落（前）');
+  truthy(!joined.includes('第三段'), '不带无关段落（后）');
+});
+
+await t('本章档：带上整章文字', () => {
+  const chapter = { title: '第一章', blocks: [
+    { id: 'b1', t: 'p', x: 'AAA' }, { id: 'b2', t: 'p', x: 'BBB' },
+  ] };
+  const r = buildRequest({
+    book: { title: '示例书' }, chapter, selection: null,
+    terms: [], ui: {}, history: [], question: '这一章讲什么？', level: 'chapter',
+  });
+  const joined = r.messages.map(m => m.content).join('\n');
+  truthy(joined.includes('AAA') && joined.includes('BBB'), '整章文字都在');
+});
+
+await t('隐私红线：默认绝不发送批注与笔记', () => {
+  const chapter = { title: '第一章', blocks: [{ id: 'b1', t: 'p', x: '组块是记忆的单位，正文内容。' }] };
+  const r = buildRequest({
+    book: { title: '书', privateNote: '这是我的私密批注' },
+    chapter, selection: { blockId: 'b1', quote: '正文' },
+    terms: [{ name: '组块', definition: '记忆的单位', myNote: '我的私密理解' }],
+    ui: { aiIncludeTerms: true }, history: [], question: '问题', level: 'brief',
+  });
+  const joined = r.messages.map(m => m.content).join('\n');
+  truthy(!joined.includes('私密批注'), '不带批注');
+  truthy(!joined.includes('我的私密理解'), '不带术语的「我的理解」');
+  truthy(joined.includes('记忆的单位'), '但带上术语定义');
+});
+
+await t('关掉术语开关后，术语定义也不发', () => {
+  const chapter = { title: '第一章', blocks: [{ id: 'b1', t: 'p', x: '组块很重要。' }] };
+  const r = buildRequest({
+    book: { title: '书' }, chapter, selection: null,
+    terms: [{ name: '组块', definition: '记忆的单位' }],
+    ui: { aiIncludeTerms: false }, history: [], question: '问题', level: 'brief',
+  });
+  truthy(!r.messages.map(m => m.content).join('\n').includes('记忆的单位'), '术语定义被关掉');
+});
+
+await t('多轮追问：历史消息按顺序带上', () => {
+  const chapter = { title: '第一章', blocks: [{ id: 'b1', t: 'p', x: '正文。' }] };
+  const r = buildRequest({
+    book: { title: '书' }, chapter, selection: null, terms: [], ui: {},
+    history: [
+      { role: 'user', content: '第一个问题' },
+      { role: 'assistant', content: '第一个回答' },
+    ],
+    question: '第二个问题', level: 'brief',
+  });
+  const roles = r.messages.map(m => m.role).join(',');
+  truthy(roles.startsWith('system,user,assistant,user'), `顺序正确，实际：${roles}`);
+  truthy(r.messages[r.messages.length - 1].content.includes('第二个问题'), '最后一轮是当前问题');
+});
+
+await t('从回答里提取术语名与定义', () => {
+  const text = '### 组块\n\n组块是把零散信息打包成有意义整体的策略。\n\n它能让工作记忆容纳更多内容。';
+  const one = extractTerm(text);
+  eq(one.name, '组块', '取出名称');
+  truthy(one.definition.includes('打包成有意义整体'), '取出定义首段');
+});
+
+await t('SSE 解析：拼出增量文本，忽略 [DONE]，坏分片不抛错', () => {
+  const buf = [
+    'data: {"choices":[{"delta":{"content":"你"}}]}',
+    '',
+    'data: {"choices":[{"delta":{"content":"好"}}]}',
+    '',
+    'data: [DONE]',
+    '',
+  ].join('\n');
+  eq(parseSseChunk(buf), '你好', '拼出增量文本');
+  eq(parseSseChunk('data: 这不是JSON\n\n'), '', '坏分片被丢弃而不是抛错');
+  eq(parseSseChunk(''), '', '空输入安全');
 });
 
 /* ---------------- 输出 ---------------- */

@@ -282,7 +282,10 @@ function previewEl() {
       class: 'ai-preview-head',
       on: { click: () => { detail.style.display = detail.style.display === 'none' ? '' : 'none'; } },
     },
-      el('span', { text: `本次将发送：${store.ui.aiCtxLevel === 'chapter' ? '本章' : '精简'}档 · 约 ${requestChars(messages)} 字` }),
+      el('span', {
+        text: `本次将发送：${store.ui.aiCtxLevel === 'chapter' ? '本章' : '精简'}档 · 约 ${requestChars(messages)} 字`
+          + (store.state.selectionRef ? ' · 含选中原文' : ''),
+      }),
       el('span', { class: 'spacer', style: { flex: '1' } }),
       el('span', { text: '展开' }),
     ),
@@ -320,6 +323,10 @@ async function send(question) {
     question: q, level: store.ui.aiCtxLevel || 'brief',
   });
 
+  // 选段是「一次性」的：已经随这条消息发出去了，立刻清掉。
+  // 不清的话，同一会话里问第二遍会把上一段原文再发一次，而界面上看不出来。
+  store.state.selectionRef = null;
+
   chatting = true; pending = ''; streamBuf = '';
   renderAi();
   abortCtrl = new AbortController();
@@ -355,11 +362,21 @@ async function send(question) {
   }
 }
 
-/** 流式输出时只改这一个节点，绝不整块重绘（否则会闪烁、还会弄丢输入框光标） */
+let streamAt = 0;
+
+/** 流式输出时只改这一个节点，绝不整块重绘（否则会闪烁、还会弄丢输入框光标）。
+    但节点内部照常走 Markdown + 公式渲染，否则等流结束才排版，结尾会「跳」一下。
+    每片都重解析太费，节流到 90ms 一次；最后一片由 finally 里的 renderAi() 兜底。 */
 function paintStreaming(text) {
   streamBuf = text;
   if (!streamEl) return;
-  streamEl.textContent = text;
+  const now = Date.now();
+  if (now - streamAt < 90) return;
+  streamAt = now;
+  const body = el('div', { class: 'ai-text' });
+  body.innerHTML = renderAnswer(text);
+  paintMath(body);
+  streamEl.replaceChildren(body);
   const box = $('#ai-thread');
   if (box) box.scrollTop = box.scrollHeight;
 }

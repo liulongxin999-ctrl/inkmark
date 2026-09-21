@@ -1,6 +1,6 @@
 # 墨读 InkMark
 
-> 电子书实时批注与知识整理工作台 · 纯本地运行，不需要安装，不需要联网
+> 电子书实时批注与知识整理工作台 · 默认完全本地运行，不需要安装
 
 [![CI](https://github.com/liulongxin999-ctrl/inkmark/actions/workflows/ci.yml/badge.svg)](https://github.com/liulongxin999-ctrl/inkmark/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -46,7 +46,11 @@
 
 ## 数据与隐私
 
-- 所有内容存放在浏览器的 **IndexedDB** 里，不联网、不上传。
+- 所有内容存放在浏览器的 **IndexedDB** 里，**默认不联网、不上传**。
+- **AI 问答是可选功能，需要你自己配置服务商**（当前支持 DeepSeek）。它默认关闭；
+  开启后，每次提问才会把「你选中的原文 + 它所在的段落 + 书名章节」发给你指定的服务商。
+  **你的批注、笔记和术语的「我的理解」永远不发送**，API Key 也只存放在本机。
+  不配置 AI 时，墨读全程不产生任何外部请求。
 - **数据跟网址绑定**：`http://localhost:8765/` 和 `http://localhost:8766/` 在浏览器眼里是两个不同的网站，
   存档互不相通。所以请始终用「启动.bat」打开，不要手动改端口。
 - **保存**：像写文档一样。左侧栏有一个常驻的 **保存** 按钮，有未保存改动时会亮起小红点，

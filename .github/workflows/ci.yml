@@ -62,6 +62,9 @@ jobs:
       - name: 备份保留策略（每个地址各留 12 份，测试不会挤掉真实备份）
         run: node tests/backup-trim.mjs
 
+      - name: AI 助手（配置隔离 / 流式转发 / 上下文裁剪 / 绝不发批注笔记）
+        run: node tests/ai.mjs
+
       - name: 保存时机与询问流程（保存按钮 / Ctrl+S / 关闭时保存 / 过大的询问）
         run: node tests/backup-timing.mjs
 

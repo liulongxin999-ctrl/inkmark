@@ -197,11 +197,80 @@ if (!browserPath) {
     await send('Page.navigate', { url: `http://localhost:${APP_PORT}/` });
     await waitFor(async () => await evalJs('!!window.__inkReady'));
 
-    await evalJs("window.__ink.store.saveChat({ kind: 'general', title: '持久化用例' })", true);
+    /* 导入示例书并进入阅读：侧栏只在阅读视图里出现 */
+    const doc = await send('DOM.getDocument', { depth: -1 });
+    const fileInput = await send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#view-library input[type=file]' });
+    await send('DOM.setFileInputFiles', { nodeId: fileInput.nodeId, files: [path.join(root, '示例', '示例书-认知科学导论.txt')] });
+    await waitFor(async () => { const n = await evalJs("document.querySelectorAll('.book-card').length"); return n > 0 ? n : 0; });
+    await evalJs("document.querySelector('.book-card').click()");
+    await waitFor(async () => { const n = await evalJs("document.querySelectorAll('#reader-body .blk').length"); return n >= 2 ? n : 0; });
+
+    /* 挂一个选段，模拟「选中正文后问 AI」 */
+    await evalJs(`(() => {
+      const s = window.__ink.store;
+      const b = s.state.chapter.blocks[0];
+      s.state.selectionRef = { blockId: b.id, quote: b.x.slice(0, 8) };
+      s.openAside('ai');
+      return true;
+    })()`);
+    await sleep(600);
+    step('AI 面板渲染出来', (await evalJs("!!document.querySelector('#aside .ai-input')")) === true);
+    step('预览里标出了会带上选段',
+      String(await evalJs("document.querySelector('#aside .ai-preview-head')?.textContent || ''")).includes('含选中原文'));
+
+    /* 真的发一条消息（打到假 provider） */
+    await evalJs(`(() => {
+      const t = document.querySelector('#aside .ai-input');
+      t.value = '这段是什么意思？';
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+      [...document.querySelectorAll('#aside .ai-input-row .btn')].find(b => b.textContent === '发送').click();
+      return true;
+    })()`);
+    const gotReply = await waitFor(async () => {
+      const n = await evalJs("(window.__ink.store.state.chats[0]?.messages || []).filter(m => m.role === 'assistant').length");
+      return n > 0 ? n : 0;
+    }, 80, 250);
+    step('提问后拿到回答并落盘', gotReply > 0, `${gotReply} 条回答`);
+    step('回答内容确实来自假 provider 的流式分片',
+      String(await evalJs("window.__ink.store.state.chats[0].messages.at(-1).text")).includes('流式回答'));
+    step('用户消息带上了引用',
+      (await evalJs("!!window.__ink.store.state.chats[0].messages[0].quoted?.quote")) === true);
+    step('选段用完后被清空（不会重复发出去）',
+      (await evalJs('window.__ink.store.state.selectionRef')) === null);
+
+    /* 一键沉淀 */
+    await sleep(500);
+    await evalJs("[...document.querySelectorAll('#aside .ai-actions .btn')].find(b => b.textContent === '存入笔记').click()");
+    await sleep(500);
+    const aiNotes = await evalJs("window.__ink.store.state.notes.filter(n => n.kind === 'ai').length");
+    step('一键「存入笔记」生成 AI 卡片', aiNotes > 0, `${aiNotes} 条`);
+    step('AI 卡片记住了原始出处',
+      (await evalJs("!!window.__ink.store.state.notes.find(n => n.kind === 'ai')?.blockId")) === true);
+
+    await evalJs("[...document.querySelectorAll('#aside .ai-actions .btn')].find(b => b.textContent === '设为术语').click()");
+    await sleep(400);
+    step('一键「设为术语」打开术语编辑器',
+      (await evalJs("!!document.querySelector('#modal-root .modal')")) === true);
+    await evalJs("document.querySelector('#modal-root .modal .icon-btn')?.click()");
+    await sleep(200);
+
+    /* 笔记工作台要认得出 AI 卡片 */
+    await evalJs("window.__ink.store.go('notes')");
+    await sleep(500);
+    const noteLabel = await evalJs(`(() => {
+      const card = [...document.querySelectorAll('#view-notes .note-card')]
+        .find(c => c.textContent.includes('AI 问答'));
+      return card ? 'AI 问答' : [...document.querySelectorAll('#view-notes .note-card .pill')].map(p => p.textContent).join(',');
+    })()`);
+    step('笔记工作台把 AI 卡片标成「AI 问答」', noteLabel === 'AI 问答', String(noteLabel));
+    await evalJs("window.__ink.store.go('reader')");
+    await sleep(300);
+
+    /* 刷新后会话仍在 */
     await send('Page.navigate', { url: `http://localhost:${APP_PORT}/` });
     await waitFor(async () => await evalJs('!!window.__inkReady'));
-    step('刷新页面后会话仍在',
-      (await evalJs("window.__ink.store.state.chats.some(c => c.title === '持久化用例')")) === true);
+    const chatsAfterReload = await evalJs('window.__ink.store.state.chats.length');
+    step('刷新页面后会话仍在', chatsAfterReload > 0, `${chatsAfterReload} 条会话`);
 
     await evalJs('window.__ink.store.clearChats()', true);
     const left = await evalJs('window.__ink.store.state.chats.length');

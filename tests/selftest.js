@@ -253,7 +253,11 @@ await t('建立书籍 → 打开 → 写批注 → 建术语 → 收笔记 → �
   await store.removeAnnotation(ann.id);
   eq(store.state.anns.length, 0, '删除批注生效');
   for (const n of store.state.notes.filter(x => x.bookId === book.id)) await store.removeNote(n.id);
+
+  // 删除书籍必须连同它的阅读会话一起清掉，否则会留下指向已删书的孤儿会话
+  const boundChat = await store.saveChat({ kind: 'reading', title: '删书前建的会话', bookId: book.id, bookTitle: book.title });
   await store.deleteBook(book.id);
+  eq(await db.get('chats', boundChat.id), undefined, '删书时阅读会话被一并清掉');
   await store.removeTerm(term.id);
   await store.removeTerm(gt.id);
   eq(store.state.books.some(b => b.id === book.id), false, '测试数据清理完成');

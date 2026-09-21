@@ -46,7 +46,9 @@ export const store = {
     asideTab: 'ann',
     focusTermId: null,
     focusAnnId: null,
-    selection: null,
+    // AI：本次提问要附带的选段。**一次性的**——发送后立刻清空，
+    // 否则同一个会话里问第二遍时，会把上一段的原文又发出去一次。
+    selectionRef: null,
     loading: false,
   },
 
@@ -194,7 +196,10 @@ export const store = {
       this.state.bookId = null; this.state.book = null; this.state.chapter = null;
       this.state.chapters = []; this.state.anns = [];
     }
+    // 会话是跟着书一起被级联删掉的，内存里的这份也要一起刷新
+    this.state.chats = await db.getAll('chats');
     await this.loadBooks();
+    this.bus.emit('chats', {});
     this.broadcast(['books']);
   },
 

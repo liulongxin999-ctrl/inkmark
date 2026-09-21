@@ -224,6 +224,8 @@
 .ai-msg.role-user{align-self:flex-end;background:var(--surface-3);border-radius:var(--r) var(--r) 3px var(--r);padding:7px 10px;max-width:88%}
 .ai-msg.role-assistant{align-self:flex-start;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r) var(--r) var(--r) 3px;padding:9px 11px}
 .ai-msg.streaming{color:var(--ink-2)}
+.ai-msg.streaming::after{content:"▍";color:var(--accent);margin-left:2px;animation:ai-blink 1s steps(2) infinite}
+@keyframes ai-blink{50%{opacity:0}}
 .ai-msg .ai-text p{margin:0 0 8px}
 .ai-msg .ai-text p:last-child{margin-bottom:0}
 .ai-msg .ai-text pre{background:var(--surface-3);padding:8px;border-radius:var(--r-sm);overflow:auto;font-family:var(--mono);font-size:12px}

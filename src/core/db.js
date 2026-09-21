@@ -86,7 +86,7 @@ export function delMany(store, keys) {
 
 /** 删除一本书及其全部关联数据 */
 export async function deleteBookCascade(bookId) {
-  const [chs, anns, terms, notes, bms, files, assets] = await Promise.all([
+  const [chs, anns, terms, notes, bms, files, assets, allChats] = await Promise.all([
     getAllBy('chapters', 'bookId', bookId),
     getAllBy('annotations', 'bookId', bookId),
     getAllBy('terms', 'bookId', bookId),
@@ -94,7 +94,10 @@ export async function deleteBookCascade(bookId) {
     getAllBy('bookmarks', 'bookId', bookId),
     getAllBy('files', 'bookId', bookId),
     getAllBy('assets', 'bookId', bookId),
+    // chats 没有 bookId 索引（会话数量很少，不值得为此建索引），直接过滤
+    getAll('chats'),
   ]);
+  const chats = allChats.filter(c => c.bookId === bookId);
   await tx(Object.keys(SCHEMA), 'readwrite', s => {
     chs.forEach(c => s.chapters.delete(c.id));
     anns.forEach(a => s.annotations.delete(a.id));
@@ -103,6 +106,7 @@ export async function deleteBookCascade(bookId) {
     bms.forEach(b => s.bookmarks.delete(b.id));
     files.forEach(f => s.files.delete(f.id));
     assets.forEach(a => s.assets.delete(a.id));
+    chats.forEach(c => s.chats.delete(c.id));
     s.books.delete(bookId);
   });
 }

@@ -43,6 +43,8 @@ const MUST_IGNORE = [
   '我的书/某本书.epub',
   '随便一本书.pdf',
   '某本教材.epub',
+  'docs/设计方案.md',
+  'docs/图片型PDF转文字指南.md',
   'node_modules/whatever.js',
   '.DS_Store',
 ];
@@ -59,6 +61,8 @@ const isDataPath = f => {
   if (/(^|\/)backups\//.test(n)) return '磁盘自动备份目录';
   if (/墨读自动备份.*\.json$/.test(n)) return '自动备份文件';
   if (/(^|\/)(资料|导出|我的书)\//.test(n)) return '个人资料目录';
+  if (/(^|\/)docs\/(设计|过程)/.test(n)) return '过程性文档（设计方案等）';
+  if (/(^|\/)docs\/[^/]*指南\.md$/.test(n)) return '过程性文档（工作指南）';
   if (/\.(pdf|epub|mobi|azw3)$/i.test(n) && !/^示例\//.test(n)) return '电子书原文件';
   return null;
 };

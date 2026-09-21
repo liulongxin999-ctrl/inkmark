@@ -67,6 +67,7 @@ docs/*
 !docs/screenshots/
 !docs/screenshots/**
 !docs/图片型PDF转文字指南.md
+!docs/AI助手使用说明.md
 
 # 任意位置的过程性文档：按常见命名兜底
 *方案.md

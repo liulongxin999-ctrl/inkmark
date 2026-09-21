@@ -63,7 +63,7 @@ for (const p of MUST_IGNORE) {
 
 /* 面向使用者的说明文档：属于「仓库里应该有的」，不算过程性材料。
    判据是「使用者必须知道的内容」，而不是「放在哪个目录」。 */
-const USER_DOCS = ['docs/图片型PDF转文字指南.md'];
+const USER_DOCS = ['docs/图片型PDF转文字指南.md', 'docs/AI助手使用说明.md'];
 
 const isDataPath = f => {
   const n = f.replace(/\\/g, '/');

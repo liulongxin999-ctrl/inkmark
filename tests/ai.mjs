@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import url from 'node:url';
+import { sweepTempDirs } from './_cleanup.mjs';
 
 const root = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), '..');
 const APP_PORT = 8791;        // 8789~8799 里没被别的测试占用的一个
@@ -187,6 +188,20 @@ const stillAlive = await getJson(`http://localhost:${APP_PORT}/__inkmark`);
 step('上游断流后墨读服务仍然活着（没被异常带走）',
   stillAlive.status === 200 && stillAlive.body?.app === 'inkmark', `HTTP ${stillAlive.status}`);
 
+/* ---------- 地址连不通 ---------- */
+await fetch(`http://localhost:${APP_PORT}/__ai/config`, {
+  method: 'POST', headers: H,
+  body: JSON.stringify({ baseUrl: 'http://127.0.0.1:1', apiKey: TEST_KEY }),
+});
+const dead = await getJson(`http://localhost:${APP_PORT}/__ai/chat`, {
+  method: 'POST', headers: H,
+  body: JSON.stringify({ messages: [{ role: 'user', content: '你好' }] }),
+});
+step('地址连不通时返回 502', dead.status === 502, `HTTP ${dead.status}`);
+step('连不通时提示是中文且说明原因', /连不上/.test(dead.body?.error || ''), String(dead.body?.error));
+const stillAlive2 = await getJson(`http://localhost:${APP_PORT}/__inkmark`);
+step('连不通之后服务仍然活着', stillAlive2.status === 200);
+
 /* ---------- 会话持久化（浏览器驱动） ----------
    上一步为了测「未配置」把配置删了，这里先写回去。 */
 await fetch(`http://localhost:${APP_PORT}/__ai/config`, {
@@ -234,6 +249,31 @@ if (!browserPath) {
 
     await send('Page.navigate', { url: `http://localhost:${APP_PORT}/` });
     await waitFor(async () => await evalJs('!!window.__inkReady'));
+
+    /* 设置页里能配置并保存 */
+    await evalJs("window.__ink.store.go('settings')");
+    await sleep(800);
+    step('设置页出现「AI 助手」区块',
+      String(await evalJs("document.querySelector('#view-settings')?.textContent || ''")).includes('AI 助手'));
+    step('已配置时状态显示为已配置',
+      String(await evalJs("[...document.querySelectorAll('#view-settings .set-row')].map(r => r.textContent).join('|')")).includes('已配置'));
+
+    const saved = await evalJs(`(async () => {
+      const rows = [...document.querySelectorAll('#view-settings .set-row')];
+      const rowOf = t => rows.find(r => r.textContent.includes(t));
+      rowOf('接口地址').querySelector('input').value = 'http://127.0.0.1:${FAKE_PORT}';
+      rowOf('模型').querySelector('select').value = 'deepseek-v4-pro';
+      rowOf('API Key').querySelector('input').value = '${TEST_KEY}';
+      rowOf('API Key').closest('.set-panel').querySelector('.btn.primary').click();
+      await new Promise(r => setTimeout(r, 900));
+      return rowOf('API Key').querySelector('input').value;
+    })()`, true);
+    step('保存后 Key 输入框被清空（不回显）', saved === '', `"${saved}"`);
+    const cfgText = fs.existsSync(AI_CONFIG) ? fs.readFileSync(AI_CONFIG, 'utf8') : '';
+    step('配置确实写进了本地文件', cfgText.includes(TEST_KEY) && cfgText.includes('deepseek-v4-pro'));
+
+    await evalJs("window.__ink.store.go('library')");
+    await sleep(400);
 
     /* 导入示例书并进入阅读：侧栏只在阅读视图里出现 */
     const doc = await send('DOM.getDocument', { depth: -1 });

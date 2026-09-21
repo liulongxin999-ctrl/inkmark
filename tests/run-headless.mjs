@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import url from 'node:url';
+import { sweepTempDirs } from './_cleanup.mjs';
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');

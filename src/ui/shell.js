@@ -343,6 +343,10 @@ export function renderSettings() {
         backupPanel(),
       ),
       el('div', { class: 'set-panel' },
+        el('h3', { text: 'AI 助手（可选）' }),
+        aiPanel(row, sw),
+      ),
+      el('div', { class: 'set-panel' },
         el('h3', { text: '快捷键' }),
         ...[
           ['Ctrl / ⌘ + K', '打开命令面板'],
@@ -358,6 +362,121 @@ export function renderSettings() {
       ),
     ),
   ));
+}
+
+/* ---------------- AI 助手配置 ----------------
+   Key 存服务端本地文件（ai.local.json，已被 .gitignore 忽略），
+   页面只知道「配没配 / 用的哪个模型」，永远读不回完整 Key。 */
+const AI_HEADERS = { 'Content-Type': 'application/json', 'X-InkMark': '1' };
+
+function aiPanel(row, sw) {
+  const host = el('div', {});
+  const statusEl = el('span', { class: 'pill', text: '检测中…' });
+  const providerSel = el('select', { class: 'select', style: { width: '160px' } },
+    el('option', { value: 'deepseek', text: 'DeepSeek' }));
+  const baseUrlI = el('input', { class: 'input', style: { width: '250px' }, placeholder: 'https://api.deepseek.com' });
+  const keyI = el('input', { class: 'input', type: 'password', style: { width: '250px' }, placeholder: '粘贴 API Key' });
+  const modelSel = el('select', { class: 'select', style: { width: '210px' } },
+    el('option', { value: 'deepseek-flash', text: 'deepseek-flash（便宜）' }),
+    el('option', { value: 'deepseek-v4-pro', text: 'deepseek-v4-pro（更强）' }));
+
+  async function load() {
+    try {
+      const d = await (await fetch('/__ai/status', { headers: AI_HEADERS })).json();
+      if (d.configured) {
+        statusEl.textContent = '已配置';
+        statusEl.className = 'pill ok';
+        providerSel.value = d.provider || 'deepseek';
+        baseUrlI.value = d.baseUrl || '';
+        modelSel.value = d.model || 'deepseek-flash';
+        keyI.placeholder = '已保存，留空表示不修改';
+      } else {
+        statusEl.textContent = '未配置';
+        statusEl.className = 'pill warn';
+        baseUrlI.value = 'https://api.deepseek.com';
+        keyI.placeholder = '粘贴你的 DeepSeek API Key';
+      }
+    } catch {
+      statusEl.textContent = '本地服务不可用';
+      statusEl.className = 'pill warn';
+    }
+  }
+
+  const saveBtn = el('button', {
+    class: 'btn sm primary', text: '保存',
+    on: {
+      click: async () => {
+        saveBtn.disabled = true;
+        try {
+          const d = await (await fetch('/__ai/config', {
+            method: 'POST', headers: AI_HEADERS,
+            body: JSON.stringify({
+              provider: providerSel.value,
+              baseUrl: baseUrlI.value.trim(),
+              apiKey: keyI.value.trim(),      // 留空 = 保留原值
+              model: modelSel.value,
+            }),
+          })).json();
+          if (!d.ok) throw new Error(d.error || '保存失败');
+          keyI.value = '';
+          await load();
+          toast('AI 配置已保存', 'ok');
+          // 通知 AI 面板刷新状态；用动态 import 避免 shell ↔ ai 循环依赖
+          const m = await import('./ai.js').catch(() => null);
+          await m?.refreshAiStatus();
+        } catch (e) {
+          toast(`保存失败：${e.message}`, 'err', 4200);
+        } finally {
+          saveBtn.disabled = false;
+        }
+      },
+    },
+  });
+
+  /* 这两项只改界面偏好，直接切类名、不整页重绘 ——
+     否则用户打到一半的 Key 会被重绘冲掉 */
+  const ctxGroup = el('div', { class: 'seg-group' },
+    ...['brief', 'chapter'].map(lv => el('button', {
+      class: (store.ui.aiCtxLevel || 'brief') === lv ? 'active' : '',
+      text: lv === 'brief' ? '精简' : '本章',
+      on: {
+        click: e => {
+          store.setUi({ aiCtxLevel: lv });
+          [...e.target.parentElement.querySelectorAll('button')].forEach(b => b.classList.remove('active'));
+          e.target.classList.add('active');
+        },
+      },
+    })));
+
+  host.append(
+    row('连接状态', '未配置时，墨读全程不会产生任何外部请求', statusEl),
+    row('服务商', '目前只支持 DeepSeek', providerSel),
+    row('接口地址', '默认即可；也可指向自建或代理', baseUrlI),
+    row('API Key', '只存在本机 ai.local.json，不进仓库、不被页面读回', keyI),
+    row('模型', '', modelSel),
+    row('', '', saveBtn),
+    row('默认上下文', '精简＝选段＋所在段落；本章＝再加上整章',
+      el('div', { class: 'row' }, ctxGroup)),
+    row('带上术语定义', '让模型知道某个词在本书里的特定含义',
+      sw(store.ui.aiIncludeTerms !== false, v => store.setUi({ aiIncludeTerms: v }))),
+    row('对话历史', '只存本机，随备份一起走，不进仓库',
+      el('button', {
+        class: 'btn sm danger', text: '清空全部对话',
+        on: {
+          click: async () => {
+            if (!await confirmDialog({ title: '清空全部对话', message: '所有 AI 对话记录都会被删除，无法恢复。确定吗？' })) return;
+            await store.clearChats();
+            toast('已清空全部对话', 'ok');
+          },
+        },
+      })),
+    el('p', { class: 'small muted', style: { marginTop: '10px' } },
+      '每次提问只会把「选中的原文 ＋ 所在段落 ＋ 书名章节」发给你配置的服务商。'
+      + '你的批注、笔记和术语的「我的理解」永远不会发送。'),
+  );
+
+  load();
+  return host;
 }
 
 /* ---------------- 数据导入导出 ---------------- */

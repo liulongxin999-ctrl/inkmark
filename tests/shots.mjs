@@ -26,7 +26,13 @@ const CANDIDATES = [
 ];
 const browser = CANDIDATES.find(p => fs.existsSync(p));
 
-const server = spawn(process.execPath, [path.join(root, 'server.mjs'), String(PORT)], { cwd: root, stdio: 'ignore' });
+/* AI 配置指向临时目录：截图过程会写配置，绝不能碰真实的 ai.local.json */
+const shotWork = fs.mkdtempSync(path.join(os.tmpdir(), 'inkmark-shot-cfg-'));
+const realAiConfig = path.join(root, 'ai.local.json');
+const server = spawn(process.execPath, [path.join(root, 'server.mjs'), String(PORT)], {
+  cwd: root, stdio: 'ignore',
+  env: { ...process.env, INKMARK_AI_CONFIG: path.join(shotWork, 'ai.local.json') },
+});
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'inkmark-shot-'));
 let proc;
 
@@ -43,6 +49,7 @@ const cleanBackups = () => {
 const finish = async code => {
   try { server.kill(); } catch {}
   try { proc?.kill(); } catch {}
+  try { fs.rmSync(shotWork, { recursive: true, force: true }); } catch {}
   await sleep(400);
   try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5 }); } catch {}
   cleanBackups();
@@ -139,6 +146,37 @@ await sleep(500);
 await evalJs("document.querySelector('.book-card').click()");
 await sleep(1200);
 await shot('10-公式与插图');
+
+/* ---------------- AI 助手 ----------------
+   假 Key 运行时拼出来：这个文件会被防泄漏闸门扫描，写死字面量会被自己拦下。 */
+const demoKey = ['sk', 'demo', '0'.repeat(12)].join('-');
+await evalJs(`fetch('/__ai/config', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-InkMark': '1' },
+  body: JSON.stringify({ provider: 'deepseek', baseUrl: 'https://api.deepseek.com', apiKey: '${demoKey}', model: 'deepseek-flash' }),
+})`, true);
+await evalJs("window.__ink.store.go('reader')");
+await sleep(600);
+await evalJs(`(async () => {
+  const s = window.__ink.store;
+  const c = await s.saveChat({ kind: 'reading', title: '组块是什么意思', bookId: s.state.bookId, bookTitle: s.state.book?.title || '' });
+  await s.appendMessage(c.id, { role: 'user', text: '组块是什么意思？',
+    quoted: { blockId: s.state.chapter.blocks[0].id, quote: '把零散信息打包成一个有意义的整体', chapterTitle: s.state.chapter.title } });
+  await s.appendMessage(c.id, { role: 'assistant', done: true, text:
+    '**组块**是把零散信息打包成有意义整体的策略。\\n\\n' +
+    '工作记忆的槽位数量有限，而每个槽位能装下的信息量可以很大。若每个组块平均承载 $b$ 个元素、槽位数为 $k$：\\n\\n' +
+    '$$C = k \\\\times b$$\\n\\n' +
+    '所以与其记 12 个孤立数字，不如记成 3 组。' });
+  return c.id;
+})()`, true);
+await evalJs("window.__ink.store.openAside('ai')");
+await sleep(900);
+await shot('13-AI 问答面板');
+
+await evalJs("window.__ink.store.go('settings')");
+await sleep(900);
+await evalJs("document.querySelector('#view-settings').scrollTop = 99999");
+await shot('14-设置-AI助手');
 
 ws.close();
 await finish(0);

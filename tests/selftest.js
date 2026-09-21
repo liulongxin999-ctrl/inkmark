@@ -354,6 +354,23 @@ await t('SSE 解析：拼出增量文本，忽略 [DONE]，坏分片不抛错', 
   eq(parseSseChunk(''), '', '空输入安全');
 });
 
+/* ---------------- 10. AI 会话存储 ---------------- */
+group('AI 会话存储');
+
+await t('会话：新建、追加消息、改名、删除都能落到 IndexedDB', async () => {
+  const chat = await store.saveChat({ kind: 'general', title: '测试会话' });
+  truthy(!!chat.id, '拿到 id');
+  const renamed = await store.saveChat({ id: chat.id, title: '改过名' });
+  eq(renamed.title, '改过名', '改名生效');
+  await store.appendMessage(chat.id, { role: 'user', text: '你好' });
+  await store.appendMessage(chat.id, { role: 'assistant', text: '你好呀', done: true });
+  const loaded = await db.get('chats', chat.id);
+  eq(loaded.messages.length, 2, '两条消息都落了盘');
+  eq(loaded.messages[1].text, '你好呀', '内容正确');
+  await store.removeChat(chat.id);
+  eq(await db.get('chats', chat.id), undefined, '删除后读不到');
+});
+
 /* ---------------- 输出 ---------------- */
 document.getElementById('results').innerHTML = out.join('');
 const summary = document.getElementById('summary');

@@ -1,7 +1,7 @@
 /* IndexedDB 薄封装：所有持久化的唯一出口 */
 
 const DB_NAME = 'inkmark';
-const DB_VERSION = 2;      // v2：新增 assets（导入的 Markdown 里引用的图片）
+const DB_VERSION = 3;      // v3：新增 chats（AI 会话）
 
 const SCHEMA = {
   books: { keyPath: 'id', indexes: [['lastReadAt', 'lastReadAt']] },
@@ -12,6 +12,7 @@ const SCHEMA = {
   bookmarks: { keyPath: 'id', indexes: [['bookId', 'bookId']] },
   files: { keyPath: 'id', indexes: [['bookId', 'bookId']] },
   assets: { keyPath: 'id', indexes: [['bookId', 'bookId']] },
+  chats: { keyPath: 'id', indexes: [['updatedAt', 'updatedAt']] },
   stats: { keyPath: 'day', indexes: [] },
   settings: { keyPath: 'key', indexes: [] },
 };

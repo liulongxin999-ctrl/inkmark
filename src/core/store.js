@@ -40,6 +40,7 @@ export const store = {
     terms: [],
     notes: [],
     bookmarks: [],
+    chats: [],
     stats: {},
     asideOpen: false,
     asideTab: 'ann',
@@ -60,6 +61,7 @@ export const store = {
     this.state.stats = Object.fromEntries((await db.getAll('stats')).map(s => [s.day, s]));
     this.state.notes = await db.getAll('notes');
     this.state.terms = await db.getAll('terms');
+    this.state.chats = await db.getAll('chats');
     await this.loadBooks();
     this.ready = true;
     this.bus.emit('ready');
@@ -86,6 +88,7 @@ export const store = {
     if (scopes.includes('books')) await this.loadBooks();
     if (scopes.includes('terms')) { this.state.terms = await db.getAll('terms'); this.bus.emit('terms', {}); }
     if (scopes.includes('notes')) { this.state.notes = await db.getAll('notes'); this.bus.emit('notes', {}); }
+    if (scopes.includes('chats')) { this.state.chats = await db.getAll('chats'); this.bus.emit('chats', {}); }
     if (scopes.includes('anns') && this.state.bookId) {
       this.state.anns = await db.getAllBy('annotations', 'bookId', this.state.bookId);
       this.bus.emit('anns', {});
@@ -376,6 +379,60 @@ export const store = {
       }));
     }
     return rows;
+  },
+
+  /* ---------- AI 会话 ---------- */
+  chatsSorted() {
+    return [...this.state.chats].sort(
+      (a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.updatedAt || 0) - (a.updatedAt || 0),
+    );
+  },
+
+  chatById(id) { return this.state.chats.find(c => c.id === id); },
+
+  async saveChat(patch) {
+    let row;
+    const i = this.state.chats.findIndex(c => c.id === patch.id);
+    if (i >= 0) {
+      row = { ...this.state.chats[i], ...patch, updatedAt: Date.now() };
+      this.state.chats[i] = row;
+    } else {
+      row = {
+        id: uid('ct'), kind: 'general', title: '新对话', bookId: null, bookTitle: '',
+        pinned: false, messages: [], createdAt: Date.now(), updatedAt: Date.now(), ...patch,
+      };
+      this.state.chats.unshift(row);
+    }
+    await db.put('chats', row);
+    this.bus.emit('chats', { chat: row });
+    this.broadcast(['chats']);
+    return row;
+  },
+
+  async appendMessage(chatId, msg) {
+    const c = this.chatById(chatId);
+    if (!c) return null;
+    const row = { ...c, messages: [...c.messages, { at: Date.now(), ...msg }], updatedAt: Date.now() };
+    const i = this.state.chats.findIndex(x => x.id === chatId);
+    this.state.chats[i] = row;
+    await db.put('chats', row);
+    this.bus.emit('chats', { chat: row });
+    this.broadcast(['chats']);
+    return row;
+  },
+
+  async removeChat(id) {
+    await db.del('chats', id);
+    this.state.chats = this.state.chats.filter(c => c.id !== id);
+    this.bus.emit('chats', {});
+    this.broadcast(['chats']);
+  },
+
+  async clearChats() {
+    await db.clear('chats');
+    this.state.chats = [];
+    this.bus.emit('chats', {});
+    this.broadcast(['chats']);
   },
 
   /* ---------- 书签 ---------- */

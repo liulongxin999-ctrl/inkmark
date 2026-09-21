@@ -91,7 +91,7 @@ async function boot() {
   store.bus.on('stats', () => { if (store.state.route === 'library') renderLibrary(); });
 
   // 任何写入都标脏，随后由 backup.js 按节奏落一份到磁盘
-  const WRITE_EVENTS = new Set(['books', 'anns', 'terms', 'notes', 'bookmarks']);
+  const WRITE_EVENTS = new Set(['books', 'anns', 'terms', 'notes', 'bookmarks', 'chats']);
   store.bus.on('*', ev => { if (WRITE_EVENTS.has(ev)) markDirty(); });
   initBackup();
   const askTimer = setInterval(() => {

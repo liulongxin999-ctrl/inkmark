@@ -44,7 +44,6 @@ const MUST_IGNORE = [
   '随便一本书.pdf',
   '某本教材.epub',
   'docs/设计方案.md',
-  'docs/图片型PDF转文字指南.md',
   'docs/随手写的开发步骤.md',      // docs/ 整体属于本地材料
   'docs/第2章建模方案.md',
   '开发方案.md',                   // 根目录的过程性文档按命名兜底
@@ -60,13 +59,20 @@ for (const p of MUST_IGNORE) {
 }
 
 /* ---------- 2 & 3. 文件名单检查 ---------- */
+
+/* 面向使用者的说明文档：属于「仓库里应该有的」，不算过程性材料。
+   判据是「使用者必须知道的内容」，而不是「放在哪个目录」。 */
+const USER_DOCS = ['docs/图片型PDF转文字指南.md'];
+
 const isDataPath = f => {
   const n = f.replace(/\\/g, '/');
   if (/(^|\/)backups\//.test(n)) return '磁盘自动备份目录';
   if (/墨读自动备份.*\.json$/.test(n)) return '自动备份文件';
   if (/(^|\/)(资料|导出|我的书)\//.test(n)) return '个人资料目录';
-  // docs/ 只允许放 README 要用的界面截图，其余都算开发过程材料
-  if (/(^|\/)docs\/(?!screenshots\/)/.test(n)) return '过程性材料（docs/ 只保留截图）';
+  // docs/ 只放两样东西：README 要用的界面截图，以及给使用者看的操作指南
+  if (/(^|\/)docs\//.test(n) && !/^docs\/screenshots\//.test(n) && !USER_DOCS.includes(n)) {
+    return '过程性材料（docs/ 只保留截图与使用者指南）';
+  }
   if (/(方案|设计|计划|步骤|待办|草稿|复盘|工作日志|笔记)\.md$/.test(n)) return '过程性文档';
   if (/\.(pdf|epub|mobi|azw3)$/i.test(n) && !/^示例\//.test(n)) return '电子书原文件';
   return null;
@@ -111,6 +117,15 @@ try {
     if (files.length) notes.push(`backups/ 里有 ${files.length} 份本地备份（不会被提交，仅提示）`);
   }
 } catch {}
+
+/* ---------- 6. 使用者该看到的文件，不能被误删 ----------
+   反向的坑：一味"清理过程材料"会把使用者真正需要的东西一起扫掉
+   （《图片型PDF转文字指南》就被误删过一次）。这里把它钉住。 */
+const MUST_TRACK = ['README.md', 'LICENSE', ...USER_DOCS, '示例/示例书-认知科学导论.txt'];
+const trackedSet = new Set(tracked);
+for (const f of MUST_TRACK) {
+  if (!trackedSet.has(f)) problems.push(`使用者该看到的文件不在仓库里：${f}（它属于「仓库里应该有的」）`);
+}
 
 /* ---------- 输出 ---------- */
 const C = { ok: '\u001b[32m', bad: '\u001b[31m', dim: '\u001b[90m', reset: '\u001b[0m' };

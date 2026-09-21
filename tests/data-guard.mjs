@@ -18,11 +18,15 @@ const FAKE_HOME = ['C:', 'Users', '某个人', 'Desktop', '秘密', '笔记.txt'
    自己拦下。运行时拼出来（String.fromCharCode(64) 就是 @）。 */
 const FAKE_EMAIL = ['someone', 'example.com'].join(String.fromCharCode(64));
 
+/* API Key 同理：这里不能出现字面量的 key，否则闸门会把本文件自己拦下 */
+const FAKE_KEY = ['sk', 'abcdefghijklmnopqrstuvwxyz012345'].join('-');
+
 const FAKES = [
   { file: path.join('backups', `${PREFIX}.json`), content: '{"app":"inkmark","data":{"books":[{"title":"假的私密教材"}]}}' },
   { file: `${PREFIX}.pdf`, content: '%PDF-1.4 假电子书' },
   { file: `${PREFIX}-路径泄露.md`, content: `我电脑上的路径：${FAKE_HOME}\n` },
   { file: `${PREFIX}-邮箱泄露.md`, content: `联系方式：${FAKE_EMAIL}\n` },
+  { file: `${PREFIX}-密钥泄露.md`, content: `我的 key：${FAKE_KEY}\n` },
 ];
 
 const steps = [];
@@ -72,6 +76,7 @@ step('能指出备份文件', /backups\/INKMARK-GUARD-TEST\.json/.test(g.out));
 step('能指出电子书原文件', /INKMARK-GUARD-TEST\.pdf/.test(g.out));
 step('能识别文件内容里的本机路径', /本机绝对路径/.test(g.out));
 step('能识别文件内容里的邮箱地址', /邮箱地址/.test(g.out));
+step('能识别文件内容里的 API Key', /API Key/.test(g.out));
 
 /* ---------- 4. 真实 git commit 必须被钩子阻止 ---------- */
 const hooksPath = git(['config', '--get', 'core.hooksPath']).out;

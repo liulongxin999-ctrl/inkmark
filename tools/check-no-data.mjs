@@ -46,6 +46,7 @@ const MUST_IGNORE = [
   'docs/设计方案.md',
   'docs/随手写的开发步骤.md',      // docs/ 整体属于本地材料
   'docs/第2章建模方案.md',
+  'ai.local.json',                 // AI 配置含 API Key
   '开发方案.md',                   // 根目录的过程性文档按命名兜底
   '第三阶段计划.md',
   'node_modules/whatever.js',
@@ -96,6 +97,10 @@ const PERSONAL = [
   // 改成通用的邮箱形态检测：任何邮箱出现在被跟踪文件里都会被拦下。
   // （这条规则的正则源码里没有 @，所以不会自己命中自己）
   { re: /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, why: '邮箱地址' },
+  // 接入 AI 之后最常见的泄露形态：把 API Key 写进了某个文件
+  { re: /\bsk-[A-Za-z0-9_-]{16,}/g, why: 'API Key' },
+  { re: /\bBearer\s+[A-Za-z0-9._-]{20,}/g, why: 'API Key（Bearer 形式）' },
+  { re: /\bapi[_-]?key\b["'\s:=]+[A-Za-z0-9._-]{16,}/gi, why: 'API Key' },
 ];
 
 for (const f of tracked) {

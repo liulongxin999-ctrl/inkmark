@@ -25,6 +25,12 @@ const HOST = '127.0.0.1';
 const BACKUP_DIR = process.env.INKMARK_BACKUP_DIR
   ? path.resolve(process.env.INKMARK_BACKUP_DIR)
   : path.join(root, 'backups');
+
+// AI 配置（含 API Key）：默认放项目根目录，已被 .gitignore 忽略。
+// 自动化测试用 INKMARK_AI_CONFIG 指到临时文件，碰不到你真正的配置。
+const AI_CONFIG_FILE = process.env.INKMARK_AI_CONFIG
+  ? path.resolve(process.env.INKMARK_AI_CONFIG)
+  : path.join(root, 'ai.local.json');
 const INDEX_FILE = 'index.json';        // 备份摘要（文件数、含几本书几条例句），避免每次都解析大文件
 const MAX_BACKUPS = 12;
 const MAX_BODY = 256 * 1024 * 1024;   // 单次备份上限 256MB

@@ -12,12 +12,40 @@ let termQuery = '';
 
 export function initSidebar() {
   store.bus.on('aside', () => renderAside());
-  store.bus.on('anns', () => { if (store.state.asideOpen && store.state.asideTab === 'ann') renderAside(); });
-  store.bus.on('terms', () => { if (store.state.asideOpen && store.state.asideTab === 'term') renderAside(); });
-  store.bus.on('bookmarks', () => { if (store.state.asideOpen && store.state.asideTab === 'outline') renderAside(); });
-  store.bus.on('chapter', () => { if (store.state.asideOpen) renderAside(); });
-  store.bus.on('book', () => renderAside());
+  // 下面这些事件都可能在「用户正在写批注」的时候触发：
+  // 防抖实时保存（anns）、阅读进度落盘（book）、换章（chapter）……
+  // 直接整块重绘会把正在输入的那个编辑框换成新节点，光标当场丢失。
+  store.bus.on('anns', () => { if (store.state.asideOpen && store.state.asideTab === 'ann') renderAsideLater(); });
+  store.bus.on('terms', () => { if (store.state.asideOpen && store.state.asideTab === 'term') renderAsideLater(); });
+  store.bus.on('bookmarks', () => { if (store.state.asideOpen && store.state.asideTab === 'outline') renderAsideLater(); });
+  store.bus.on('chapter', () => { if (store.state.asideOpen) renderAsideLater(); });
+  store.bus.on('book', () => renderAsideLater());
   store.bus.on('route', () => renderAside());
+  // 用户离开输入框后，再把挂起的重绘补上
+  document.addEventListener('focusout', () => {
+    // focusout 阶段 activeElement 还没更新，放到下一轮事件循环里再判断
+    setTimeout(() => {
+      if (pendingAsideRender && !typingInAside()) { pendingAsideRender = false; renderAside(); }
+    }, 0);
+  });
+  renderAside();
+}
+
+/* ---------------- 重绘与光标保护 ----------------
+   侧栏是整块重绘的，而批注卡里的编辑框是 contenteditable。
+   只要在用户打字期间重绘，输入框节点就会被换掉，光标和已选中的位置一起丢失
+   （表现为"话还没打完，光标就跳出去了，得重新点回批注框"）。
+   所以焦点还在侧栏编辑器里时，先把重绘挂起，等用户离开输入框再补上。 */
+let pendingAsideRender = false;
+
+function typingInAside() {
+  const a = document.activeElement;
+  return !!(a && a.isContentEditable && $('#aside')?.contains(a));
+}
+
+function renderAsideLater() {
+  if (typingInAside()) { pendingAsideRender = true; return; }
+  pendingAsideRender = false;
   renderAside();
 }
 
@@ -26,6 +54,7 @@ function renderAside() {
   const open = store.state.asideOpen && store.state.book && store.state.route === 'reader';
   document.getElementById('app').classList.toggle('aside-open', open);
   if (!open) return;
+  pendingAsideRender = false;
   const tabs = [['ann', '批注'], ['term', '术语'], ['outline', '大纲'], ['stat', '统计']];
   const body = el('div', { class: 'aside-body', id: 'aside-body' });
   setChildren(aside,
@@ -41,8 +70,14 @@ function renderAside() {
   );
   const render = { ann: renderAnnPanel, term: renderTermPanel, outline: renderOutline, stat: renderStats }[store.state.asideTab];
   render?.(body);
-  if (store.state.focusAnnId) focusAnn(store.state.focusAnnId);
-  if (store.state.focusTermId && store.state.asideTab === 'term') focusTerm(store.state.focusTermId);
+  // 定位请求是一次性的：用完就清掉，
+  // 否则以后每次重绘都会把焦点和滚动位置重新抢回这条卡片，用户点哪儿都会被拽回来。
+  const wantAnn = store.state.focusAnnId;
+  const wantTerm = store.state.focusTermId;
+  store.state.focusAnnId = null;
+  store.state.focusTermId = null;
+  if (wantAnn && store.state.asideTab === 'ann') focusAnn(wantAnn);
+  if (wantTerm && store.state.asideTab === 'term') focusTerm(wantTerm);
 }
 
 const hintFor = tab => ({

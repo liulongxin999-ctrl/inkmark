@@ -145,6 +145,38 @@ const savedNote = await evalJs('(async () => (await window.__ink.db.get("annotat
 step('侧栏修改批注后实时落盘', savedNote === '工作记忆容量有限，约 4 个组块。', String(savedNote));
 step('正文同步出现批注圆点', (await evalJs("document.querySelectorAll('#reader-body .note-end').length")) > 0);
 
+/* 4b. 打字过程中不能被侧栏重绘打断
+   回归：批注框是 contenteditable，防抖保存成功后会广播事件，
+   而侧栏整块重绘会把正在输入的节点换掉 —— 表现为"写一半光标就跳出去了"。 */
+await evalJs(`(() => {
+  const el = document.querySelector('#aside [data-ann-id] .card-body');
+  el.focus();
+  const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
+  const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  window.__typing = el;
+  el.textContent += '还没打完，光标不该跑。';
+  el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  return true;
+})()`);
+await sleep(1000);   // 等防抖保存（320ms）触发的那一次侧栏重绘跑完
+const typing = await evalJs(`(() => {
+  const el = window.__typing;
+  return {
+    connected: !!el && el.isConnected,
+    focused: document.activeElement === el,
+    active: document.activeElement ? (document.activeElement.className || document.activeElement.tagName) : 'null',
+  };
+})()`);
+step('打字中触发的实时保存不会把批注框重绘掉', typing.connected && typing.focused,
+  `输入框还在=${typing.connected} 仍聚焦=${typing.focused} 当前焦点=${typing.active}`);
+
+await evalJs('window.__ink.store.saveBookProgress()', true);
+await sleep(300);
+step('阅读进度落盘也不会抢走批注框焦点', (await evalJs('document.activeElement === window.__typing')) === true);
+
+const typedNote = await evalJs('(async () => (await window.__ink.db.get("annotations", window.__ink.store.state.anns[0].id)).note)()', true);
+step('边打边存的内容完整落盘', String(typedNote).includes('还没打完，光标不该跑。'), String(typedNote));
+
 /* 5. 建立术语 → 全书自动高亮 → 悬停气泡 */
 await evalJs("window.__ink.store.saveTerm({ name: '工作记忆', definition: '容量有限的临时加工系统', color: '#2f5d7c' }).then(()=>window.__ink.store.openAside('term'))", true);
 const termSegs = await waitFor(async () => { const n = await evalJs("document.querySelectorAll('#reader-body .sg[data-term]').length"); return n > 0 ? n : 0; });

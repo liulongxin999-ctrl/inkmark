@@ -36,6 +36,13 @@ if not %errorlevel%==0 (
   exit /b 1
 )
 
-node server.mjs %p% --open --allow-port-change
+rem 和「启动.bat」保持一致：支持的机器上带 --use-system-ca，
+rem 否则有代理做 HTTPS 解密的用户会一直「连不上模型服务」
+node --use-system-ca -e "0" >nul 2>nul
+if errorlevel 1 (
+  node server.mjs %p% --open --allow-port-change
+) else (
+  node --use-system-ca server.mjs %p% --open --allow-port-change
+)
 echo.
 pause

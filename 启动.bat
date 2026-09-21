@@ -5,8 +5,17 @@ cd /d "%~dp0"
 
 where node >nul 2>nul
 if %errorlevel%==0 (
-  echo 正在启动墨读（Node 模式）...
-  node server.mjs 8765 --open
+  rem 先用一个空脚本探测当前 Node 支不支持 --use-system-ca
+  rem 支持的机器上带着它启动，墨读就会改用系统证书库 ——
+  rem 有代理（Clash/v2ray 等）做 HTTPS 解密的用户，不带这个参数会一直「连不上模型服务」
+  node --use-system-ca -e "0" >nul 2>nul
+  if errorlevel 1 (
+    echo 正在启动墨读（Node 模式）...
+    node server.mjs 8765 --open
+  ) else (
+    echo 正在启动墨读（Node 模式 · 信任系统证书库）...
+    node --use-system-ca server.mjs 8765 --open
+  )
   if errorlevel 1 (
     echo.
     echo  ============================================================

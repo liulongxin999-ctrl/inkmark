@@ -155,6 +155,24 @@ step('Key 落在隔离的临时配置文件里', raw.includes(TEST_KEY));
 step('测试没有创建或改动你真实的 ai.local.json',
   (fs.existsSync(REAL_AI_CONFIG) ? fs.readFileSync(REAL_AI_CONFIG, 'utf8') : null) === realConfigSnapshot);
 
+/* ---------- 空值不能把配置改坏 ----------
+   设置页在状态还没加载完时点保存，字段会是空的。
+   早期实现用 ?? 判断，空串会被当成有效值写进去 —— baseUrl 变成空串，
+   之后一律连不上，而且从界面上看不出配置已经坏了。 */
+await fetch(`http://localhost:${APP_PORT}/__ai/config`, {
+  method: 'POST', headers: H,
+  body: JSON.stringify({ baseUrl: `http://127.0.0.1:${FAKE_PORT}`, apiKey: TEST_KEY, model: 'deepseek-flash' }),
+});
+await fetch(`http://localhost:${APP_PORT}/__ai/config`, {
+  method: 'POST', headers: H,
+  body: JSON.stringify({ provider: '', baseUrl: '', model: '', apiKey: '' }),
+});
+const afterEmpty = (await getJson(`http://localhost:${APP_PORT}/__ai/status`, { headers: H })).body;
+step('提交空值时保留原配置（baseUrl 不会被写成空串）',
+  afterEmpty.baseUrl === `http://127.0.0.1:${FAKE_PORT}`, JSON.stringify(afterEmpty));
+step('提交空值时模型也保留', afterEmpty.model === 'deepseek-flash', String(afterEmpty.model));
+step('提交空 Key 时保留原 Key', afterEmpty.configured === true);
+
 /* ---------- 流式转发 ---------- */
 hits.length = 0;
 const chatRes = await fetch(`http://localhost:${APP_PORT}/__ai/chat`, {

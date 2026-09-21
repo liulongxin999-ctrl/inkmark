@@ -351,9 +351,12 @@ const server = http.createServer(async (req, res) => {
       const cur = readAiConfig() || { ...AI_DEFAULTS };
       // apiKey 传空表示「保留原值」：前端改模型时不必把 Key 回传一遍
       const next = {
-        provider: patch.provider ?? cur.provider ?? AI_DEFAULTS.provider,
-        baseUrl: String(patch.baseUrl ?? cur.baseUrl ?? AI_DEFAULTS.baseUrl).replace(/\/+$/, ''),
-        model: patch.model ?? cur.model ?? AI_DEFAULTS.model,
+        // 用 || 而不是 ??：空字符串也要落回「保持原值」。
+        // 否则设置页在状态还没加载完时点保存，会把 baseUrl 写成空串，
+        // 配置就被悄悄改坏了（表现为之后一律连不上）。
+        provider: patch.provider || cur.provider || AI_DEFAULTS.provider,
+        baseUrl: String(patch.baseUrl || cur.baseUrl || AI_DEFAULTS.baseUrl).replace(/\/+$/, ''),
+        model: patch.model || cur.model || AI_DEFAULTS.model,
         apiKey: patch.apiKey ? String(patch.apiKey).trim() : (cur.apiKey || ''),
       };
       writeAiConfig(next);

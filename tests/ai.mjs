@@ -243,16 +243,39 @@ if (!browserPath) {
     await evalJs("document.querySelector('.book-card').click()");
     await waitFor(async () => { const n = await evalJs("document.querySelectorAll('#reader-body .blk').length"); return n >= 2 ? n : 0; });
 
-    /* 挂一个选段，模拟「选中正文后问 AI」 */
+    /* 走真实的「选中正文 → 工具条 → 问 AI」路径 */
     await evalJs(`(() => {
-      const s = window.__ink.store;
-      const b = s.state.chapter.blocks[0];
-      s.state.selectionRef = { blockId: b.id, quote: b.x.slice(0, 8) };
-      s.openAside('ai');
+      const blk = [...document.querySelectorAll('#reader-body .blk')].find(b => b.textContent.includes('组块'));
+      const node = [...blk.childNodes].find(n => n.nodeType === 3) || blk.firstChild;
+      const r = document.createRange();
+      r.setStart(node, 0);
+      r.setEnd(node, Math.min(8, node.data.length));
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+      document.querySelector('#reader-body').dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
       return true;
     })()`);
-    await sleep(600);
+    await sleep(400);
+    step('选中正文后工具条出现「问 AI」',
+      (await evalJs('!!document.querySelector(\'#sel-toolbar [data-act="ask"]\')')) === true);
+
+    await evalJs('document.querySelector(\'#sel-toolbar [data-act="ask"]\').click()');
+    await sleep(700);
+    step('点「问 AI」后侧栏切到 AI 标签',
+      (await evalJs('window.__ink.store.state.asideTab')) === 'ai');
+    step('选段被挂上（会随这次提问一起发出去）',
+      (await evalJs('!!window.__ink.store.state.selectionRef')) === true);
+    step('输入框预填了问题',
+      String(await evalJs("document.querySelector('#aside .ai-input')?.value || ''")).includes('这段是什么意思'));
     step('AI 面板渲染出来', (await evalJs("!!document.querySelector('#aside .ai-input')")) === true);
+
+    /* 命令面板里也要有入口 */
+    await evalJs("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))");
+    await sleep(400);
+    step('命令面板里有「问 AI…」',
+      String(await evalJs("[...document.querySelectorAll('.palette-item')].map(i => i.textContent).join('|')")).includes('问 AI'));
+    await evalJs("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))");
+    await sleep(300);
+
     step('预览里标出了会带上选段',
       String(await evalJs("document.querySelector('#aside .ai-preview-head')?.textContent || ''")).includes('含选中原文'));
 
@@ -321,6 +344,25 @@ if (!browserPath) {
     step('上游断流时，前端把这条回答标成「未完成」', marked === true, lastMsg.slice(0, 170));
     step('界面上明确提示了没写完',
       String(await evalJs("document.querySelector('#aside .ai-warn')?.textContent || ''")).includes('没写完'));
+
+    /* 第四个入口：术语悬停气泡 */
+    await evalJs("window.__ink.store.saveTerm({ name: '组块', definition: '记忆的单位', color: '#2f5d7c' })", true);
+    await sleep(700);
+    await evalJs(`(() => {
+      const sg = document.querySelector('#reader-body .sg[data-term]');
+      if (!sg) return false;
+      sg.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      return true;
+    })()`);
+    await sleep(600);   // 悬停 250ms 之后才浮出气泡
+    step('术语气泡里有「让 AI 讲讲这个」',
+      (await evalJs("!!document.querySelector('#hover-card .hc-ask')")) === true);
+    await evalJs("document.querySelector('#hover-card .hc-ask').click()");
+    await sleep(700);
+    step('点它会带着术语打开 AI 面板',
+      String(await evalJs("document.querySelector('#aside .ai-input')?.value || ''")).includes('请解释「组块」'));
+    step('术语所在段落也被挂成上下文',
+      (await evalJs('!!window.__ink.store.state.selectionRef?.blockId')) === true);
 
     /* 刷新后会话仍在 */
     await send('Page.navigate', { url: `http://localhost:${APP_PORT}/` });

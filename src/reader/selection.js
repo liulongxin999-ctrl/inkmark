@@ -109,6 +109,15 @@ export function initSelection({ root, getChapter, onAfterCreate }) {
   };
   hoverCard.addEventListener('mouseenter', () => clearTimeout(hoverTimer));
   hoverCard.addEventListener('mouseleave', hideHover);
+  hoverCard.addEventListener('click', e => {
+    const ask = e.target.closest?.('.hc-ask');
+    if (!ask) return;
+    hideHover();
+    store.bus.emit('aiAsk', {
+      selection: { blockId: ask.dataset.block || null, quote: ask.dataset.term },
+      question: `请解释「${ask.dataset.term}」`,
+    });
+  });
 
   /** 供 reader 调用 */
   return {
@@ -132,6 +141,9 @@ function hoverContent(sg) {
     if (term.myNote) parts.push(`<div class="hc-body" style="margin-top:6px;color:var(--muted)">我的理解：${esc(term.myNote)}</div>`);
     const tags = (term.tags || []).map(t => `#${esc(t)}`).join(' ');
     parts.push(`<div class="hc-foot">${tags || '点击固定到侧栏'} <span style="margin-left:auto">${term.bookId ? '本书术语' : '全局术语'}</span></div>`);
+    // 让 AI 讲讲这个：把术语所在的那一整段作为上下文带过去
+    const blockId = sg.closest?.('.blk')?.dataset.blockId || '';
+    parts.push(`<div class="hc-ask-row"><span class="hc-ask" data-term="${esc(term.name)}" data-block="${esc(blockId)}">让 AI 讲讲这个</span></div>`);
   }
   if (ann && (ann.note || '').trim()) {
     if (!term) {
@@ -165,6 +177,7 @@ function showToolbar(sel) {
     btn('note', ICONS.note, '写批注', 'note'),
     btn('term', ICONS.star, '设为术语', 'term', !(single && shortEnough)),
     el('div', { class: 'tb-sep' }),
+    btn('ask', ICONS.msg, '问 AI', 'ask'),
     btn('copy', ICONS.copy, '复制', 'copy'),
     btn('collect', ICONS.jump, '存入笔记', 'collect'),
   );

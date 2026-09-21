@@ -68,6 +68,7 @@ export const ICONS = {
   refresh: 'M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5',
   clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3.5 2',
   doc: 'M5 3h11l4 4v14H5zM16 3v4h4M8.5 12h7M8.5 16h4.5',
+  msg: 'M4 5h16v11H8l-4 4z',
 };
 
 let _seq = 0;

@@ -249,6 +249,16 @@ async function handleToolbarAction(act, sel, color) {
       toast('已复制引文与出处', 'ok');
       break;
     }
+    case 'ask': {
+      // 走事件总线交给 ui/ai.js 处理：避免 reader ←→ ui/ai 互相 import 成环。
+      // 只把内容填进输入框，不自动发送——发送必须由用户按下去。
+      const first = sel.ranges[0];
+      store.bus.emit('aiAsk', {
+        selection: { blockId: first.blockId, quote: first.text },
+        question: '这段是什么意思？',
+      });
+      break;
+    }
     case 'collect': {
       const rows = await store.addAnnotations(buildAnnotations(sel, { kind: 'hl', color: store.ui.highlightColor }));
       await store.collectAnnotations(rows.map(r => r.id));

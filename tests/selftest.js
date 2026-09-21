@@ -344,6 +344,14 @@ await t('从回答里提取术语名与定义', () => {
   truthy(one.definition.includes('打包成有意义整体'), '取出定义首段');
 });
 
+await t('提取逻辑对空输入安全', () => {
+  const one = extractTerm('');
+  eq(one.name, '', '空输入不给名称');
+  eq(one.definition, '', '空输入不给定义');
+  const two = extractTerm(null);
+  eq(two.name, '', 'null 也不炸');
+});
+
 await t('SSE 解析：拼出增量文本，忽略 [DONE]，坏分片不抛错', () => {
   const buf = [
     'data: {"choices":[{"delta":{"content":"你"}}]}',

@@ -37,10 +37,34 @@ export async function refreshAiStatus() {
 
 export function setPending(q) { pending = String(q || ''); }
 
+/**
+ * 统一的「问 AI」入口：挂上选段、切到 AI 标签、把问题填进输入框。
+ * **只填不发** —— 发送会把内容发到外网，必须是用户的显式动作。
+ * @returns {boolean} 是否成功打开
+ */
+export function askAi(selection = null, question = '') {
+  if (!store.state.bookId) {
+    toast('先打开一本书 —— AI 面板在阅读视图的右侧栏', 'err', 3400);
+    store.go('library');
+    return false;
+  }
+  store.state.selectionRef = selection || null;
+  setPending(question);
+  if (store.state.route !== 'reader') store.go('reader');
+  store.openAside('ai');           // 触发 sidebar 重绘 → renderAi → 输入框带上 pending
+  return true;
+}
+
 export function initAi() {
   store.bus.on('chats', () => { if (isAiOpen()) renderAi(); });
   store.bus.on('aiStatus', () => { if (isAiOpen()) renderAi(); });
-  store.bus.on('aiAsk', q => { if (q) { setPending(q); if (isAiOpen()) renderAi(); } });
+  // 统一入口：正文工具条、术语悬停气泡、命令面板都通过这个事件过来，
+  // 这样 reader/selection 都不必 import 本模块（避免循环依赖）
+  store.bus.on('aiAsk', payload => {
+    if (!payload) return;
+    if (typeof payload === 'string') return void askAi(null, payload);
+    askAi(payload.selection || null, payload.question || '');
+  });
   store.bus.on('route', () => { if (isAiOpen()) renderAi(); });
   refreshAiStatus();
 }

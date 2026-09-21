@@ -181,6 +181,7 @@ export function openPalette() {
     { kind: '命令', label: '导出笔记为 Markdown', run: () => exportMarkdown() },
     { kind: '命令', label: '导入备份', run: () => importBackup() },
     { kind: '命令', label: '打开设置', run: () => store.go('settings') },
+    { kind: '命令', label: '问 AI…', run: () => store.bus.emit('aiAsk', { question: '' }) },
   ];
 
   function build(q) {

@@ -439,6 +439,28 @@ function aiPanel(row, sw) {
     },
   });
 
+  const testBtn = el('button', {
+    class: 'btn sm', text: '测试连接',
+    on: {
+      click: async () => {
+        testBtn.disabled = true;
+        testBtn.textContent = '测试中…';
+        try {
+          const d = await (await fetch('/__ai/test', {
+            method: 'POST', headers: AI_HEADERS, body: '{}',
+          })).json();
+          if (d.ok) toast(`连接正常（${d.model}，${d.ms} ms）`, 'ok', 4200);
+          else toast(`连不上：${d.error}${d.detail ? `　[${String(d.detail).slice(0, 60)}]` : ''}`, 'err', 8000);
+        } catch (e) {
+          toast(`测试失败：${e.message}`, 'err', 5000);
+        } finally {
+          testBtn.disabled = false;
+          testBtn.textContent = '测试连接';
+        }
+      },
+    },
+  });
+
   /* 这两项只改界面偏好，直接切类名、不整页重绘 ——
      否则用户打到一半的 Key 会被重绘冲掉 */
   const ctxGroup = el('div', { class: 'seg-group' },
@@ -460,7 +482,7 @@ function aiPanel(row, sw) {
     row('接口地址', '默认即可；也可指向自建或代理', baseUrlI),
     row('API Key', '只存在本机 ai.local.json，不进仓库、不被页面读回', keyI),
     row('模型', '', modelSel),
-    row('', '', saveBtn),
+    row('', '', el('div', { class: 'row' }, saveBtn, testBtn)),
     row('默认上下文', '精简＝选段＋所在段落；本章＝再加上整章',
       el('div', { class: 'row' }, ctxGroup)),
     row('带上术语定义', '让模型知道某个词在本书里的特定含义',

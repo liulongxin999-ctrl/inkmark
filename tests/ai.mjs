@@ -26,9 +26,32 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 /** 假 Key：运行时拼出来，源码里不出现完整形态 */
 const TEST_KEY = ['sk', 'test', 'key', '0'.repeat(12)].join('-');
 
+/* 记下你真实 ai.local.json 在测试开始前的内容（可能你自己配过了，也可能没有）。
+   测试全程用 INKMARK_AI_CONFIG 指到临时文件，结束时比对这里 —— 
+   既不能创建、也不能改写你的真实配置。 */
+const realConfigSnapshot = fs.existsSync(REAL_AI_CONFIG) ? fs.readFileSync(REAL_AI_CONFIG, 'utf8') : null;
+
 const steps = [];
 const step = (name, ok, extra = '') => steps.push({ name, ok: !!ok, extra });
 const hits = [];
+
+/* 先断开、再正常的服务商：用来验证「连接阶段失败会自动重试」。
+   真实场景里，代理的 TLS 中间人解密就是只影响最开始那一两次握手。 */
+let flakyPort = 8787;      // 8789~8799 都被别的测试占了，这里用 8787
+let flakyHits = 0;
+function startFlakyProvider() {
+  const srv = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', c => (body += c));
+    req.on('end', () => {
+      flakyHits++;
+      if (flakyHits === 1) { req.socket.destroy(); return; }   // 第一次直接把连接掐掉
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { content: 'pong' } }] }));
+    });
+  });
+  return new Promise(r => srv.listen(flakyPort, '127.0.0.1', () => r(srv)));
+}
 
 /* ---------- 假的 OpenAI 兼容服务商 ---------- */
 function startFakeProvider() {
@@ -129,7 +152,8 @@ step('status 绝不返回 Key', !JSON.stringify(status1.body).includes(TEST_KEY)
 
 const raw = fs.existsSync(AI_CONFIG) ? fs.readFileSync(AI_CONFIG, 'utf8') : '';
 step('Key 落在隔离的临时配置文件里', raw.includes(TEST_KEY));
-step('真实 ai.local.json 没有被创建', !fs.existsSync(REAL_AI_CONFIG));
+step('测试没有创建或改动你真实的 ai.local.json',
+  (fs.existsSync(REAL_AI_CONFIG) ? fs.readFileSync(REAL_AI_CONFIG, 'utf8') : null) === realConfigSnapshot);
 
 /* ---------- 流式转发 ---------- */
 hits.length = 0;
@@ -201,6 +225,20 @@ step('地址连不通时返回 502', dead.status === 502, `HTTP ${dead.status}`)
 step('连不通时提示是中文且说明原因', /连不上/.test(dead.body?.error || ''), String(dead.body?.error));
 const stillAlive2 = await getJson(`http://localhost:${APP_PORT}/__inkmark`);
 step('连不通之后服务仍然活着', stillAlive2.status === 200);
+
+/* ---------- 连接阶段失败要自动重试 ----------
+   实测：开着 TLS 中间人解密的机器上，最开始那一两次握手会失败，之后就好。
+   不重试的话，用户第一次提问必然撞上「连不上模型服务」。 */
+const flaky = await startFlakyProvider();
+flakyHits = 0;
+await fetch(`http://localhost:${APP_PORT}/__ai/config`, {
+  method: 'POST', headers: H,
+  body: JSON.stringify({ baseUrl: `http://127.0.0.1:${flakyPort}`, apiKey: TEST_KEY }),
+});
+const retried = await getJson(`http://localhost:${APP_PORT}/__ai/test`, { method: 'POST', headers: H, body: '{}' });
+step('首次连接被掐断时，自动重试后能成功', retried.body?.ok === true, JSON.stringify(retried.body));
+step('确实重试了（服务端收到第二次连接）', flakyHits >= 2, `收到 ${flakyHits} 次`);
+flaky.close();
 
 /* ---------- 会话持久化（浏览器驱动） ----------
    上一步为了测「未配置」把配置删了，这里先写回去。 */

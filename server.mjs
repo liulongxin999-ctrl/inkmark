@@ -201,6 +201,62 @@ async function saveBackup(req, res) {
 /* ---------------- 请求处理 ---------------- */
 let actualPort = PORT;
 
+/** Node 的 fetch 失败时只抛一句「fetch failed」，毫无信息量。
+    真正的原因在 e.cause 里，这里翻译成能对症下药的中文提示。 */
+function describeNetError(e) {
+  const cause = e?.cause || {};
+  const code = String(cause.code || cause.errno || e?.code || '');
+  const msg = String(cause.message || e?.message || '');
+  const blob = `${code} ${msg}`;
+  // 注意：各种失败的形状差别很大 —— 有的只有 code，有的只有 message
+  // （例如阻端口是 Error: bad port，根本没有 code）。所以按合并后的文本来判断。
+  // 另外开了 fake-ip 代理的机器上，DNS 永远"解析成功"，
+  // 故障会表现成「连接被对端关闭」或超时，而不是 ENOTFOUND。
+  const hint =
+    /bad port/i.test(blob) ? '「接口地址」里的端口不合法'
+    : /ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(blob) ? '域名解析失败，检查网络或代理'
+    : /ECONNREFUSED/i.test(blob) ? '连接被拒绝，检查「接口地址」是否填对'
+    : /TIMEOUT|ETIMEDOUT/i.test(blob) ? '连接超时，网络或代理不稳定'
+    : /CERT|TLS|SSL|certificate/i.test(blob) ? 'HTTPS 证书校验失败'
+    : /ECONNRESET|UND_ERR_SOCKET|other side closed|socket hang up/i.test(blob) ? '连接被中途关闭，多半是代理或防火墙拦了'
+    : '网络不通';
+  return { error: `连不上模型服务：${hint}`, detail: [code, msg].filter(Boolean).join(' / ') || '未知原因' };
+}
+
+/**
+ * 连一次上游；遇到「连接阶段」的失败自动重试一次。
+ *
+ * 为什么要重试：实测在开着 TLS 中间人解密（Clash/v2ray 之类）的机器上，
+ * **最开始那一两次握手会拿到自签名证书而失败，之后同一进程里再连就正常了**。
+ * 不重试的话，用户第一次提问必然撞上「连不上模型服务」。
+ *
+ * 重试是安全的：失败发生在拿到任何响应之前，上游没有处理过这个请求；
+ * 而且我们**不会**因此放松证书校验——真是持续的中间人，重试照样失败。
+ */
+const AI_RETRY_DELAYS = [250, 700, 1500];
+
+async function fetchUpstream(cfg, payload, timeoutMs = 120000) {
+  const init = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+    body: JSON.stringify(payload),
+  };
+  let lastErr;
+  for (let attempt = 0; attempt <= AI_RETRY_DELAYS.length; attempt++) {
+    try {
+      return await fetch(`${cfg.baseUrl}/chat/completions`, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    } catch (e) {
+      lastErr = e;
+      if (attempt < AI_RETRY_DELAYS.length) {
+        const wait = AI_RETRY_DELAYS[attempt];
+        console.log(`[AI] 第 ${attempt + 1} 次连接失败（${describeNetError(e).detail}），${wait}ms 后重试…`);
+        await new Promise(r => setTimeout(r, wait));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 /** 把对话请求转发给配置的服务商，原样流式回传。
     服务端不保存任何对话内容；Key 也只在这里用，不下发给页面。 */
 async function proxyChat(req, res) {
@@ -217,17 +273,13 @@ async function proxyChat(req, res) {
 
   let up;
   try {
-    up = await fetch(`${cfg.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-      body: JSON.stringify({
-        model: cfg.model,
-        messages: payload.messages,
-        stream: payload.stream !== false,
-      }),
+    up = await fetchUpstream(cfg, {
+      model: cfg.model,
+      messages: payload.messages,
+      stream: payload.stream !== false,
     });
   } catch (e) {
-    return json(res, 502, { ok: false, error: `连不上模型服务：${e.message}` });
+    return json(res, 502, { ok: false, ...describeNetError(e) });
   }
 
   if (!up.ok) {
@@ -312,6 +364,36 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (p === '/__ai/chat' && req.method === 'POST') return proxyChat(req, res);
+
+  /* 连通性自检：发一个最小的请求，验「地址通不通、Key 对不对」。
+     只花 1 个 token，但能省掉「连不上」那种没头没脑的排查。 */
+  if (p === '/__ai/test' && req.method === 'POST') {
+    if (!trusted(req)) return json(res, 403, { ok: false });
+    const cfg = readAiConfig();
+    if (!cfg?.apiKey) return json(res, 400, { ok: false, error: '还没有配置 API Key' });
+    const t0 = Date.now();
+    try {
+      const up = await fetchUpstream(cfg, {
+        model: cfg.model,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1,
+        stream: false,
+      });
+      const ms = Date.now() - t0;
+      if (!up.ok) {
+        let detail = '';
+        try { detail = (await up.text()).slice(0, 300); } catch { /* 读不到就算了 */ }
+        const hint = up.status === 401 ? 'API Key 无效或已失效'
+          : up.status === 402 ? '账户余额不足'
+          : up.status === 429 ? '请求太频繁，稍后再试'
+          : `模型服务返回 ${up.status}`;
+        return json(res, 200, { ok: false, error: hint, detail, ms });
+      }
+      return json(res, 200, { ok: true, ms, model: cfg.model });
+    } catch (e) {
+      return json(res, 200, { ok: false, ...describeNetError(e), ms: Date.now() - t0 });
+    }
+  }
 
   /* 静态文件 */
   let file = path.join(root, p === '/' ? 'index.html' : p);

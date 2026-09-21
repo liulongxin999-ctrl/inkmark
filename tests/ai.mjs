@@ -89,6 +89,40 @@ if (!up) await finish(2);
 
 /* ---------- 后续任务的用例追加在这里 ---------- */
 
+/* ---------- 配置读写 ---------- */
+const H = { 'Content-Type': 'application/json', 'X-InkMark': '1' };
+
+/** 安全地取 JSON：接口不存在时返回 body:null，不抛异常（失败要干净，不能崩） */
+async function getJson(u, opts) {
+  const r = await fetch(u, opts);
+  let body = null;
+  try { body = await r.json(); } catch { /* 非 JSON，例如 404 的纯文本 */ }
+  return { status: r.status, body };
+}
+
+// 必须带自定义头：/__ai/* 全部走 trusted() 校验，前端也是这么调的
+const status0 = await getJson(`http://localhost:${APP_PORT}/__ai/status`, { headers: H });
+step('未配置时 status 返回 configured:false',
+  status0.body?.ok === true && status0.body?.configured === false, JSON.stringify(status0));
+
+const saveRes = await getJson(`http://localhost:${APP_PORT}/__ai/config`, {
+  method: 'POST', headers: H,
+  body: JSON.stringify({
+    provider: 'deepseek', baseUrl: `http://127.0.0.1:${FAKE_PORT}`,
+    apiKey: TEST_KEY, model: 'deepseek-flash',
+  }),
+});
+step('可以保存配置', saveRes.body?.ok === true, JSON.stringify(saveRes));
+
+const status1 = await getJson(`http://localhost:${APP_PORT}/__ai/status`, { headers: H });
+step('配置后 status 返回 configured:true 与模型名',
+  status1.body?.configured === true && status1.body?.model === 'deepseek-flash', JSON.stringify(status1));
+step('status 绝不返回 Key', !JSON.stringify(status1.body).includes(TEST_KEY), JSON.stringify(status1.body));
+
+const raw = fs.existsSync(AI_CONFIG) ? fs.readFileSync(AI_CONFIG, 'utf8') : '';
+step('Key 落在隔离的临时配置文件里', raw.includes(TEST_KEY));
+step('真实 ai.local.json 没有被创建', !fs.existsSync(REAL_AI_CONFIG));
+
 /* ---------- 输出 ---------- */
 const C = { ok: '\u001b[32m', fail: '\u001b[31m', reset: '\u001b[0m', dim: '\u001b[90m' };
 console.log('\nAI 助手端到端回归\n');

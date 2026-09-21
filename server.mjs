@@ -99,6 +99,27 @@ const writeIndex = idx => {
   try { fs.mkdirSync(BACKUP_DIR, { recursive: true }); fs.writeFileSync(path.join(BACKUP_DIR, INDEX_FILE), JSON.stringify(idx), 'utf8'); } catch {}
 };
 
+/* ---------------- AI 配置（含 API Key） ----------------
+   只存本机文件，页面永远读不到完整 Key：/__ai/status 只回「配没配 + 模型名」。 */
+const AI_DEFAULTS = { provider: 'deepseek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' };
+
+function readAiConfig() {
+  try { return JSON.parse(fs.readFileSync(AI_CONFIG_FILE, 'utf8')); } catch { return null; }
+}
+
+function writeAiConfig(cfg) {
+  fs.writeFileSync(AI_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8');
+}
+
+/** 对外暴露的配置视图：永远不含 apiKey */
+function maskConfig(cfg) {
+  if (!cfg || !cfg.apiKey) return { ok: true, configured: false };
+  return {
+    ok: true, configured: true,
+    provider: cfg.provider || '', baseUrl: cfg.baseUrl || '', model: cfg.model || '',
+  };
+}
+
 /** 从备份内容里提取规模信息（首次遇到没有摘要的旧备份时才会解析） */
 function summarize(name) {
   try {
@@ -203,6 +224,32 @@ const server = http.createServer(async (req, res) => {
     const body = fs.readFileSync(full);
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': body.length });
     return res.end(body);
+  }
+
+  /* ---------------- AI ----------------
+     Key 只存在服务端本地文件里，页面拿不到；换服务商只改这一处。 */
+  if (p === '/__ai/status') {
+    if (!trusted(req)) return json(res, 403, { ok: false });
+    return json(res, 200, maskConfig(readAiConfig()));
+  }
+
+  if (p === '/__ai/config' && req.method === 'POST') {
+    if (!trusted(req)) return json(res, 403, { ok: false });
+    try {
+      const patch = JSON.parse((await readBody(req)).toString('utf8') || '{}');
+      const cur = readAiConfig() || { ...AI_DEFAULTS };
+      // apiKey 传空表示「保留原值」：前端改模型时不必把 Key 回传一遍
+      const next = {
+        provider: patch.provider ?? cur.provider ?? AI_DEFAULTS.provider,
+        baseUrl: String(patch.baseUrl ?? cur.baseUrl ?? AI_DEFAULTS.baseUrl).replace(/\/+$/, ''),
+        model: patch.model ?? cur.model ?? AI_DEFAULTS.model,
+        apiKey: patch.apiKey ? String(patch.apiKey).trim() : (cur.apiKey || ''),
+      };
+      writeAiConfig(next);
+      return json(res, 200, maskConfig(next));
+    } catch (e) {
+      return json(res, 400, { ok: false, error: e.message });
+    }
   }
 
   /* 静态文件 */

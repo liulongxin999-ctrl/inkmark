@@ -149,6 +149,74 @@ const noCfg = await getJson(`http://localhost:${APP_PORT}/__ai/chat`, {
 step('未配置 Key 时返回 400', noCfg.status === 400, `HTTP ${noCfg.status}`);
 step('未配置时提示是中文且明确', /Key/.test(noCfg.body?.error || ''), String(noCfg.body?.error));
 
+/* ---------- 会话持久化（浏览器驱动） ----------
+   上一步为了测「未配置」把配置删了，这里先写回去。 */
+await fetch(`http://localhost:${APP_PORT}/__ai/config`, {
+  method: 'POST', headers: H,
+  body: JSON.stringify({
+    baseUrl: `http://127.0.0.1:${FAKE_PORT}`, apiKey: TEST_KEY, model: 'deepseek-flash',
+  }),
+});
+
+const CANDIDATES = [
+  'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  '/usr/bin/google-chrome', '/usr/bin/chromium',
+];
+const browserPath = CANDIDATES.find(p => fs.existsSync(p));
+if (!browserPath) {
+  step('（跳过浏览器用例：未找到 Chrome/Edge）', true);
+} else {
+  const CDP = 9351;
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'inkmark-ai-p-'));
+  const browser = spawn(browserPath, [
+    '--headless=new', '--disable-gpu', '--no-first-run',
+    `--user-data-dir=${profile}`, `--remote-debugging-port=${CDP}`, 'about:blank',
+  ], { stdio: 'ignore' });
+  try {
+    await waitFor(async () => { try { return (await fetch(`http://127.0.0.1:${CDP}/json/version`)).json(); } catch { return false; } });
+    const tabs = await (await fetch(`http://127.0.0.1:${CDP}/json/list`)).json();
+    const ws = new WebSocket(tabs.find(t => t.type === 'page').webSocketDebuggerUrl);
+    await new Promise(r => { ws.onopen = r; });
+    let seq = 0; const waiting = new Map();
+    const send = (method, params = {}) => new Promise(res => {
+      const i = ++seq; waiting.set(i, res); ws.send(JSON.stringify({ id: i, method, params }));
+    });
+    ws.onmessage = e => {
+      const m = JSON.parse(e.data);
+      if (m.id && waiting.has(m.id)) { waiting.get(m.id)(m.result); waiting.delete(m.id); }
+    };
+    await send('Runtime.enable'); await send('Page.enable');
+    const evalJs = async (expression, awaitPromise = false) => {
+      const r = await send('Runtime.evaluate', { expression, awaitPromise, returnByValue: true });
+      if (r?.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
+      return r?.result?.value;
+    };
+
+    await send('Page.navigate', { url: `http://localhost:${APP_PORT}/` });
+    await waitFor(async () => await evalJs('!!window.__inkReady'));
+
+    await evalJs("window.__ink.store.saveChat({ kind: 'general', title: '持久化用例' })", true);
+    await send('Page.navigate', { url: `http://localhost:${APP_PORT}/` });
+    await waitFor(async () => await evalJs('!!window.__inkReady'));
+    step('刷新页面后会话仍在',
+      (await evalJs("window.__ink.store.state.chats.some(c => c.title === '持久化用例')")) === true);
+
+    await evalJs('window.__ink.store.clearChats()', true);
+    const left = await evalJs('window.__ink.store.state.chats.length');
+    step('清空全部对话后没有残留', left === 0, `${left} 条`);
+
+    ws.close();
+  } catch (e) {
+    step('浏览器用例执行失败', false, e.message);
+  } finally {
+    try { browser.kill(); } catch {}
+    await sleep(300);
+    try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
+  }
+}
+
 /* ---------- 输出 ---------- */
 const C = { ok: '\u001b[32m', fail: '\u001b[31m', reset: '\u001b[0m', dim: '\u001b[90m' };
 console.log('\nAI 助手端到端回归\n');

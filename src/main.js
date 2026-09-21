@@ -4,6 +4,7 @@ import { $, $$, el, relTime } from './core/utils.js';
 import store from './core/store.js';
 import { initReader, bindReaderKeys, renderTopbar, renderChapter } from './reader/reader.js';
 import { initSidebar } from './panels/sidebar.js';
+import { initAi } from './ui/ai.js';
 import { initLibrary, renderLibrary } from './views/library.js';
 import { initNotes, renderNotes, bindWikiLinks } from './views/notes.js';
 import { initReview } from './views/review.js';
@@ -76,6 +77,7 @@ async function boot() {
   initReview();
   initReader();
   initSidebar();
+  initAi();
   bindWikiLinks(document.body);
 
   store.bus.on('route', () => {

@@ -5,6 +5,7 @@ import store from '../core/store.js';
 import { annKind } from '../reader/marks.js';
 import { locateAnnotation, locateTerm, jumpTo, addBookmarkHere, openOriginalPage, sortAnns } from '../reader/reader.js';
 import { openTermEditor, toast, confirmDialog } from '../ui/shell.js';
+import { renderAi } from '../ui/ai.js';
 
 const KIND_LABEL = { hl: '高亮', ul: '下划线', wavy: '波浪线', strike: '删除线', note: '批注' };
 let scope = 'chapter';   // chapter | book
@@ -20,6 +21,8 @@ export function initSidebar() {
   store.bus.on('bookmarks', () => { if (store.state.asideOpen && store.state.asideTab === 'outline') renderAsideLater(); });
   store.bus.on('chapter', () => { if (store.state.asideOpen) renderAsideLater(); });
   store.bus.on('book', () => renderAsideLater());
+  store.bus.on('chats', () => { if (store.state.asideOpen && store.state.asideTab === 'ai') renderAsideLater(); });
+  store.bus.on('aiStatus', () => { if (store.state.asideOpen && store.state.asideTab === 'ai') renderAsideLater(); });
   store.bus.on('route', () => renderAside());
   // 用户离开输入框后，再把挂起的重绘补上
   document.addEventListener('focusout', () => {
@@ -40,7 +43,10 @@ let pendingAsideRender = false;
 
 function typingInAside() {
   const a = document.activeElement;
-  return !!(a && a.isContentEditable && $('#aside')?.contains(a));
+  if (!a || !$('#aside')?.contains(a)) return false;
+  // 批注编辑器是 contenteditable；AI 面板的输入框是 textarea/input。
+  // 两者都不能在打字期间被重绘，否则光标和未提交的内容一起丢。
+  return !!(a.isContentEditable || a.tagName === 'TEXTAREA' || a.tagName === 'INPUT');
 }
 
 function renderAsideLater() {
@@ -55,7 +61,7 @@ function renderAside() {
   document.getElementById('app').classList.toggle('aside-open', open);
   if (!open) return;
   pendingAsideRender = false;
-  const tabs = [['ann', '批注'], ['term', '术语'], ['outline', '大纲'], ['stat', '统计']];
+  const tabs = [['ann', '批注'], ['term', '术语'], ['ai', 'AI'], ['outline', '大纲'], ['stat', '统计']];
   const body = el('div', { class: 'aside-body', id: 'aside-body' });
   setChildren(aside,
     el('div', { class: 'aside-head' },
@@ -68,7 +74,7 @@ function renderAside() {
     body,
     el('div', { class: 'aside-foot small muted', text: hintFor(store.state.asideTab) }),
   );
-  const render = { ann: renderAnnPanel, term: renderTermPanel, outline: renderOutline, stat: renderStats }[store.state.asideTab];
+  const render = { ann: renderAnnPanel, term: renderTermPanel, ai: renderAiPanel, outline: renderOutline, stat: renderStats }[store.state.asideTab];
   render?.(body);
   // 定位请求是一次性的：用完就清掉，
   // 否则以后每次重绘都会把焦点和滚动位置重新抢回这条卡片，用户点哪儿都会被拽回来。
@@ -83,9 +89,13 @@ function renderAside() {
 const hintFor = tab => ({
   ann: '正文里点选文字即可批注；点标记回到这里编辑，改动自动保存。',
   term: '术语会在全书自动高亮。悬停看释义，点击回到这里编辑。',
+  ai: '每次提问只会发送选中的原文、所在段落和书名章节；批注与笔记永远不发。',
   outline: '目录与书签，点击直达。',
   stat: '阅读与批注的进度概览。',
 }[tab] || '');
+
+/** AI 标签页：直接交给 src/ui/ai.js 渲染 */
+function renderAiPanel(host) { renderAi(host); }
 
 /* ---------------- 批注面板 ---------------- */
 function renderAnnPanel(host) {

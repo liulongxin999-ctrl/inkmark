@@ -128,8 +128,8 @@
 
 ```bash
 node tests/check-imports.mjs    # 静态检查：导入导出是否匹配
-node tests/run-headless.mjs     # 71 项运行时自检（无头浏览器，真实 IndexedDB）
-node tests/smoke.mjs            # 22 步端到端：上传 → 划选批注 → 术语 → 笔记 → 刷新持久化
+node tests/run-headless.mjs     # 72 项运行时自检（无头浏览器，真实 IndexedDB）
+node tests/smoke.mjs            # 25 步端到端：上传 → 划选批注 → 术语 → 笔记 → 刷新持久化
 node tests/persistence.mjs      # 存档验证：关闭浏览器 / 强制杀进程后数据是否还在
 node tests/backup.mjs           # 磁盘备份与「换浏览器后一键恢复」验证
 node tests/backup-timing.mjs    # 保存按钮 / Ctrl+S / 关闭时保存 / 数据过大时的询问流程

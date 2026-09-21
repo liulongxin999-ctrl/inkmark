@@ -45,6 +45,10 @@ const MUST_IGNORE = [
   '某本教材.epub',
   'docs/设计方案.md',
   'docs/图片型PDF转文字指南.md',
+  'docs/随手写的开发步骤.md',      // docs/ 整体属于本地材料
+  'docs/第2章建模方案.md',
+  '开发方案.md',                   // 根目录的过程性文档按命名兜底
+  '第三阶段计划.md',
   'node_modules/whatever.js',
   '.DS_Store',
 ];
@@ -61,8 +65,9 @@ const isDataPath = f => {
   if (/(^|\/)backups\//.test(n)) return '磁盘自动备份目录';
   if (/墨读自动备份.*\.json$/.test(n)) return '自动备份文件';
   if (/(^|\/)(资料|导出|我的书)\//.test(n)) return '个人资料目录';
-  if (/(^|\/)docs\/(设计|过程)/.test(n)) return '过程性文档（设计方案等）';
-  if (/(^|\/)docs\/[^/]*指南\.md$/.test(n)) return '过程性文档（工作指南）';
+  // docs/ 只允许放 README 要用的界面截图，其余都算开发过程材料
+  if (/(^|\/)docs\/(?!screenshots\/)/.test(n)) return '过程性材料（docs/ 只保留截图）';
+  if (/(方案|设计|计划|步骤|待办|草稿|复盘|工作日志|笔记)\.md$/.test(n)) return '过程性文档';
   if (/\.(pdf|epub|mobi|azw3)$/i.test(n) && !/^示例\//.test(n)) return '电子书原文件';
   return null;
 };

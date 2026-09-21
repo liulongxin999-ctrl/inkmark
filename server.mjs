@@ -245,8 +245,19 @@ async function proxyChat(req, res) {
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
   });
-  for await (const chunk of up.body) res.write(chunk);
-  res.end();
+  try {
+    for await (const chunk of up.body) res.write(chunk);
+    res.end();
+  } catch {
+    // 上游中途断流：必须在这里兜住。否则异常会变成 unhandled rejection，
+    // Node 15+ 默认直接终止进程 —— 模型服务抖一下，整个墨读就没了。
+    //
+    // 注意不要用 res.destroy()：那会让浏览器连同已经缓冲的分片一起丢弃，
+    // 前端连「已经生成了一半的内容」都拿不到。正确做法是补一个明确的
+    // 结束标记再正常收尾，让前端知道这条回答没写完。
+    try { res.write('data: {"inkmark":"aborted"}\n\n'); } catch { /* 已经断了 */ }
+    try { res.end(); } catch { /* 已经断了 */ }
+  }
 }
 
 const server = http.createServer(async (req, res) => {

@@ -32,10 +32,16 @@ export function openDB() {
     const open = indexedDB.open(DB_NAME, DB_VERSION);
     open.onupgradeneeded = () => {
       const db = open.result;
+      const t = open.transaction;
       for (const [name, def] of Object.entries(SCHEMA)) {
-        if (db.objectStoreNames.contains(name)) continue;
-        const os = db.createObjectStore(name, { keyPath: def.keyPath });
-        for (const [idxName, path] of def.indexes) os.createIndex(idxName, path);
+        const os = db.objectStoreNames.contains(name)
+          ? t.objectStore(name)
+          : db.createObjectStore(name, { keyPath: def.keyPath });
+        // 已存在的 store 也要补齐后来新增的索引：
+        // 老用户升级时如果只建新 store，新加在老 store 上的索引会永远缺失。
+        for (const [idxName, path] of def.indexes) {
+          if (!os.indexNames.contains(idxName)) os.createIndex(idxName, path);
+        }
       }
     };
     open.onsuccess = () => { _db = open.result; resolve(_db); };

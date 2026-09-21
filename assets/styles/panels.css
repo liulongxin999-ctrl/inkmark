@@ -233,6 +233,7 @@
 .ai-quote{border-left:2px solid var(--accent);padding:3px 8px;margin-bottom:6px;color:var(--muted);font-family:var(--serif);font-size:12px;cursor:pointer;max-height:76px;overflow:hidden}
 .ai-quote:hover{color:var(--ink)}
 .ai-actions{display:flex;gap:5px;margin-top:8px;flex-wrap:wrap}
+.ai-warn{margin-top:7px;padding:5px 8px;border-radius:var(--r-sm);color:var(--warn);background:color-mix(in srgb, var(--warn) 10%, transparent)}
 .ai-preview{border-top:1px dashed var(--line);padding-top:6px}
 .ai-preview-head{display:flex;gap:6px;align-items:center;cursor:pointer;color:var(--muted);font-size:11.5px}
 .ai-preview-body{margin:6px 0 0;padding:8px;background:var(--surface-3);border-radius:var(--r-sm);max-height:190px;overflow:auto;white-space:pre-wrap;font-size:11.5px;line-height:1.6;font-family:var(--sans);color:var(--ink-2)}

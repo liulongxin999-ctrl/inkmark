@@ -162,6 +162,12 @@ function messageEl(m) {
   paintMath(body);
   bindAnswerLinks(body);
   own.append(body);
+  if (m.interrupted) {
+    own.append(el('div', {
+      class: 'ai-warn small',
+      text: '⚠ 这条回答没写完（连接中断，或你点了停止），内容可能不完整。',
+    }));
+  }
   if (m.done && String(m.text || '').trim()) own.append(actionsEl(m));
   return own;
 }
@@ -331,6 +337,7 @@ async function send(question) {
   renderAi();
   abortCtrl = new AbortController();
   let acc = '';
+  let interrupted = false;
   try {
     const res = await fetch('/__ai/chat', {
       method: 'POST', headers: AI_HEADERS, signal: abortCtrl.signal,
@@ -339,23 +346,31 @@ async function send(question) {
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       toast(e.error || `请求失败（HTTP ${res.status}）`, 'err', 5000);
+      interrupted = true;
       return;
     }
     const reader = res.body.getReader();
     const dec = new TextDecoder();
+    let raw = '';
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      acc += parseSseChunk(dec.decode(value, { stream: true }));
+      const piece = dec.decode(value, { stream: true });
+      raw += piece;
+      acc += parseSseChunk(piece);
       paintStreaming(acc);
     }
+    // 服务端在「上游断流」时会补这个标记再收尾（见 server.mjs 的 proxyChat）
+    if (raw.includes('"inkmark":"aborted"')) interrupted = true;
   } catch (e) {
+    interrupted = true;
     if (e.name !== 'AbortError') toast(`连接中断：${e.message}`, 'err', 5000);
   } finally {
     chatting = false; abortCtrl = null;
     if (acc.trim()) {
       await store.appendMessage(chat.id, {
-        role: 'assistant', text: acc, quoted, model: aiStatus.model, done: true,
+        role: 'assistant', text: acc, quoted, model: aiStatus.model,
+        done: true, interrupted,
       });
     }
     renderAi();

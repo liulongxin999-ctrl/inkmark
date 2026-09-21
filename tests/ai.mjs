@@ -38,6 +38,13 @@ function startFakeProvider() {
       let parsed = {};
       try { parsed = JSON.parse(body || '{}'); } catch { /* 忽略 */ }
       hits.push({ url: req.url, auth: req.headers.authorization || '', body: parsed });
+      // 中途断流分支：用来验证「模型服务抖一下」时墨读不会挂，且前端会标记未完成
+      if (JSON.stringify(parsed.messages || []).includes('中断测试')) {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '只有半句' } }] })}\n\n`);
+        setTimeout(() => { try { res.destroy(); } catch { /* 已经断了 */ } }, 30);
+        return;
+      }
       if (parsed.stream === true) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });
         for (const piece of ['这是', '流式', '回答', '。']) {
@@ -148,6 +155,37 @@ const noCfg = await getJson(`http://localhost:${APP_PORT}/__ai/chat`, {
 });
 step('未配置 Key 时返回 400', noCfg.status === 400, `HTTP ${noCfg.status}`);
 step('未配置时提示是中文且明确', /Key/.test(noCfg.body?.error || ''), String(noCfg.body?.error));
+
+/* ---------- 上游中途断流：最严重的一类故障 ----------
+   没兜住的话，异常会变成 unhandled rejection，Node 15+ 直接终止进程，
+   等于「模型服务抖一下，整个墨读就没了」。 ---------- */
+await fetch(`http://localhost:${APP_PORT}/__ai/config`, {
+  method: 'POST', headers: H,
+  body: JSON.stringify({
+    baseUrl: `http://127.0.0.1:${FAKE_PORT}`, apiKey: TEST_KEY, model: 'deepseek-flash',
+  }),
+});
+let partial = '';
+try {
+  const r = await fetch(`http://localhost:${APP_PORT}/__ai/chat`, {
+    method: 'POST', headers: H,
+    body: JSON.stringify({ messages: [{ role: 'user', content: '中断测试' }], stream: true }),
+  });
+  // 按前端的方式逐块读：连接被上游带断时 read() 会抛，
+  // 但此前已经到达的分片必须已经累积下来（前端就是靠这个保住半截回答的）
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    partial += dec.decode(value, { stream: true });
+  }
+} catch { /* 连接断了，属于预期 */ }
+step('上游断流时，已收到的部分仍转发给了前端', partial.includes('只有半句'), partial.slice(0, 40));
+
+const stillAlive = await getJson(`http://localhost:${APP_PORT}/__inkmark`);
+step('上游断流后墨读服务仍然活着（没被异常带走）',
+  stillAlive.status === 200 && stillAlive.body?.app === 'inkmark', `HTTP ${stillAlive.status}`);
 
 /* ---------- 会话持久化（浏览器驱动） ----------
    上一步为了测「未配置」把配置删了，这里先写回去。 */
@@ -265,6 +303,24 @@ if (!browserPath) {
     step('笔记工作台把 AI 卡片标成「AI 问答」', noteLabel === 'AI 问答', String(noteLabel));
     await evalJs("window.__ink.store.go('reader')");
     await sleep(300);
+
+    /* 上游断流时，前端的表现 */
+    await evalJs(`(() => {
+      window.__ink.store.openAside('ai');
+      const t = document.querySelector('#aside .ai-input');
+      t.value = '中断测试';
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+      [...document.querySelectorAll('#aside .ai-input-row .btn')].find(b => b.textContent === '发送').click();
+      return true;
+    })()`);
+    const marked = await waitFor(async () => {
+      const last = await evalJs("window.__ink.store.state.chats[0]?.messages.at(-1)");
+      return last?.role === 'assistant' && last?.interrupted === true;
+    }, 60, 250);
+    const lastMsg = String(await evalJs("JSON.stringify(window.__ink.store.state.chats[0]?.messages.at(-1) || null)"));
+    step('上游断流时，前端把这条回答标成「未完成」', marked === true, lastMsg.slice(0, 170));
+    step('界面上明确提示了没写完',
+      String(await evalJs("document.querySelector('#aside .ai-warn')?.textContent || ''")).includes('没写完'));
 
     /* 刷新后会话仍在 */
     await send('Page.navigate', { url: `http://localhost:${APP_PORT}/` });

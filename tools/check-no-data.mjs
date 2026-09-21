@@ -86,6 +86,10 @@ for (const [list, label] of [[tracked, '已被跟踪的文件'], [stagedFiles, '
 const TEXT_EXT = /\.(js|mjs|css|html|json|md|txt|yml|yaml|bat|cmd|sh|typ|tex)$/i;
 const PERSONAL = [
   { re: /C:\\+Users\\+[^\\\s"']+\\/g, why: '本机绝对路径' },
+  // 不写死任何具体邮箱 —— 那等于把邮箱本身公开在仓库里。
+  // 改成通用的邮箱形态检测：任何邮箱出现在被跟踪文件里都会被拦下。
+  // （这条规则的正则源码里没有 @，所以不会自己命中自己）
+  { re: /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, why: '邮箱地址' },
 ];
 
 for (const f of tracked) {

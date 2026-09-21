@@ -14,10 +14,15 @@ const PREFIX = 'INKMARK-GUARD-TEST';
    否则会被自己拦下（这正是真实发生过的误报）。这里在运行时拼接。 */
 const FAKE_HOME = ['C:', 'Users', '某个人', 'Desktop', '秘密', '笔记.txt'].join(String.fromCharCode(92));
 
+/* 邮箱同理：不能在这里写死一个字面量邮箱，否则防泄漏检查会把这个测试文件
+   自己拦下。运行时拼出来（String.fromCharCode(64) 就是 @）。 */
+const FAKE_EMAIL = ['someone', 'example.com'].join(String.fromCharCode(64));
+
 const FAKES = [
   { file: path.join('backups', `${PREFIX}.json`), content: '{"app":"inkmark","data":{"books":[{"title":"假的私密教材"}]}}' },
   { file: `${PREFIX}.pdf`, content: '%PDF-1.4 假电子书' },
   { file: `${PREFIX}-路径泄露.md`, content: `我电脑上的路径：${FAKE_HOME}\n` },
+  { file: `${PREFIX}-邮箱泄露.md`, content: `联系方式：${FAKE_EMAIL}\n` },
 ];
 
 const steps = [];
@@ -66,6 +71,7 @@ step('检查器能识别出暂存的私人数据', g.code !== 0, `退出码 ${g.
 step('能指出备份文件', /backups\/INKMARK-GUARD-TEST\.json/.test(g.out));
 step('能指出电子书原文件', /INKMARK-GUARD-TEST\.pdf/.test(g.out));
 step('能识别文件内容里的本机路径', /本机绝对路径/.test(g.out));
+step('能识别文件内容里的邮箱地址', /邮箱地址/.test(g.out));
 
 /* ---------- 4. 真实 git commit 必须被钩子阻止 ---------- */
 const hooksPath = git(['config', '--get', 'core.hooksPath']).out;

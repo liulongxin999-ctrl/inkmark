@@ -375,7 +375,13 @@ function aiPanel(row, sw) {
   const providerSel = el('select', { class: 'select', style: { width: '160px' } },
     el('option', { value: 'deepseek', text: 'DeepSeek' }));
   const baseUrlI = el('input', { class: 'input', style: { width: '250px' }, placeholder: 'https://api.deepseek.com' });
-  const keyI = el('input', { class: 'input', type: 'password', style: { width: '250px' }, placeholder: '粘贴 API Key' });
+  const keyI = el('input', {
+    class: 'input', type: 'password', style: { width: '250px' }, placeholder: '粘贴 API Key',
+    // 不让浏览器的密码管理器记住它：密码管理器可能把 Key 同步到云端账号，
+    // 那等于绕开「只存本机」这条边界。
+    autocomplete: 'new-password',
+    spellcheck: 'false',
+  });
   const modelSel = el('select', { class: 'select', style: { width: '210px' } },
     el('option', { value: 'deepseek-flash', text: 'deepseek-flash（便宜）' }),
     el('option', { value: 'deepseek-v4-pro', text: 'deepseek-v4-pro（更强）' }));

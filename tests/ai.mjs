@@ -272,6 +272,21 @@ if (!browserPath) {
     const cfgText = fs.existsSync(AI_CONFIG) ? fs.readFileSync(AI_CONFIG, 'utf8') : '';
     step('配置确实写进了本地文件', cfgText.includes(TEST_KEY) && cfgText.includes('deepseek-v4-pro'));
 
+    /* Key 的边界：只准待在服务端那个文件里，别处一个字节都不许有 */
+    const leak = await evalJs(`(async () => {
+      const dump = JSON.stringify(await window.__ink.db.exportAll());
+      const ls = JSON.stringify(Object.fromEntries(Object.entries(localStorage)));
+      const st = await (await fetch('/__ai/status', { headers: { 'X-InkMark': '1' } })).text();
+      return {
+        db: dump.includes('${TEST_KEY}'),
+        ls: ls.includes('${TEST_KEY}'),
+        status: st.includes('${TEST_KEY}'),
+      };
+    })()`, true);
+    step('Key 没进浏览器存档（备份文件里也不会有）', leak.db === false, JSON.stringify(leak));
+    step('Key 没进 localStorage', leak.ls === false);
+    step('status 接口不回传 Key', leak.status === false);
+
     await evalJs("window.__ink.store.go('library')");
     await sleep(400);
 

@@ -182,6 +182,7 @@ export function openPalette() {
     { kind: '命令', label: '导入备份', run: () => importBackup() },
     { kind: '命令', label: '打开设置', run: () => store.go('settings') },
     { kind: '命令', label: '问 AI…', run: () => store.bus.emit('aiAsk', { question: '' }) },
+    { kind: '命令', label: '打开 AI 助手（独立问答）', run: () => store.go('ai') },
   ];
 
   function build(q) {
@@ -501,6 +502,9 @@ function aiPanel(row, sw) {
     el('p', { class: 'small muted', style: { marginTop: '10px' } },
       '每次提问只会把「选中的原文 ＋ 所在段落 ＋ 书名章节」发给你配置的服务商。'
       + '你的批注、笔记和术语的「我的理解」永远不会发送。'),
+    el('p', { class: 'small muted', style: { marginTop: '6px' } },
+      '左侧栏「AI」里的独立问答更干净：它只发送你在那里写下的内容，'
+      + '书、批注、笔记一个字节都不发 —— 上面这些上下文设置对它不生效。'),
   );
 
   load();

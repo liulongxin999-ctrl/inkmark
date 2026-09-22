@@ -8,29 +8,27 @@
 import { $, el, svg, ICONS, esc, relTime, setChildren, copyText, debounce } from '../core/utils.js';
 import store from '../core/store.js';
 import { toast, promptDialog, confirmDialog, openTermEditor } from './shell.js';
-import { buildRequest, requestChars, extractTerm, parseSseChunk } from '../core/ai.js';
-import { findMathRuns, renderMath } from '../reader/math.js';
+import { buildRequest, requestChars, extractTerm } from '../core/ai.js';
 import { jumpTo } from '../reader/reader.js';
+import {
+  AI_HEADERS, aiStatus, refreshAiStatus as fetchAiStatus,
+  renderAnswer, paintMath, decorateCode, streamChat,
+} from './chatkit.js';
 
-export const AI_HEADERS = { 'Content-Type': 'application/json', 'X-InkMark': '1' };
+export { AI_HEADERS };
 
 let activeChatId = null;
 let chatting = false;
 let abortCtrl = null;
-let aiStatus = { configured: false, model: '' };
 let pending = '';          // 从正文/术语带过来的问题草稿，等用户确认再发
 let streamBuf = '';        // 流式输出的累积文本
 let streamEl = null;       // 流式输出时正在写的那个节点
 
 const isAiOpen = () => store.state.asideOpen && store.state.asideTab === 'ai';
 
+/** 拿一次连接状态（配置有没有配好、用的哪个模型），并通知界面重绘 */
 export async function refreshAiStatus() {
-  try {
-    const r = await fetch('/__ai/status', { headers: AI_HEADERS });
-    aiStatus = await r.json();
-  } catch {
-    aiStatus = { configured: false, model: '', offline: true };
-  }
+  await fetchAiStatus();
   store.bus.emit('aiStatus');
   return aiStatus;
 }
@@ -44,9 +42,10 @@ export function setPending(q) { pending = String(q || ''); }
  */
 export function askAi(selection = null, question = '') {
   if (!store.state.bookId) {
-    toast('先打开一本书 —— AI 面板在阅读视图的右侧栏', 'err', 3400);
-    store.go('library');
-    return false;
+    // 没在读书时，「问 AI」落到独立 AI 工作台：它不需要书，也不会碰到书里的内容
+    store.go('ai');
+    toast('已打开 AI 助手（它读不到书里的内容）', '', 3400);
+    return true;
   }
   store.state.selectionRef = selection || null;
   setPending(question);
@@ -101,7 +100,8 @@ function renderSetupGuide(host) {
 
 /* ---------------- 主面板 ---------------- */
 function renderChats(host) {
-  const chats = store.chatsSorted();
+  // 只看「阅读中问的」会话：独立 AI 的会话归左侧栏的「AI」页，两边不互相串味
+  const chats = store.readingChats();
   const chat = store.chatById(activeChatId) || chats[0] || null;
   activeChatId = chat?.id || null;
 
@@ -113,7 +113,7 @@ function renderChats(host) {
         on: { click: () => { activeChatId = c.id; renderAi(); } },
       },
         el('span', { class: 't', text: c.title || '新对话' }),
-        el('span', { class: 'k', text: c.kind === 'reading' ? (c.bookTitle || '本书') : '通用' }),
+        el('span', { class: 'k', text: c.bookTitle || '本书' }),
         el('button', {
           class: 'icon-btn danger', title: '删除这条对话',
           on: {
@@ -160,6 +160,11 @@ function renderChats(host) {
         }),
         el('span', { class: 'spacer', style: { flex: '1' } }),
         el('span', { class: 'small muted', text: aiStatus.model || '' }),
+        el('button', {
+          class: 'btn sm ghost', title: '打开独立的 AI 助手（它读不到书里的内容）',
+          text: '独立 AI',
+          on: { click: () => store.go('ai') },
+        }),
       ),
       list,
       thread,
@@ -184,6 +189,7 @@ function messageEl(m) {
   const body = el('div', { class: 'ai-text' });
   body.innerHTML = renderAnswer(m.text);
   paintMath(body);
+  decorateCode(body);
   bindAnswerLinks(body);
   own.append(body);
   if (m.interrupted) {
@@ -248,42 +254,7 @@ function actionsEl(m) {
   );
 }
 
-/* ---------------- 渲染回答：Markdown + KaTeX + 双链 ---------------- */
-function renderAnswer(text) {
-  const src = String(text || '');
-  let html;
-  if (window.marked?.parse) {
-    try { html = window.marked.parse(src, { breaks: true, gfm: true }); }
-    catch { html = `<p>${esc(src)}</p>`; }
-  } else html = `<p>${esc(src).replace(/\n/g, '<br>')}</p>`;
-  return html.replace(/\[\[(.+?)\]\]/g,
-    (_, n) => `<span class="wl" data-link="${esc(n.trim())}">${esc(n.trim())}</span>`);
-}
-
-/** 把正文里的 $...$ / $$...$$ 换成真正的数学排版 */
-function paintMath(root) {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const nodes = [];
-  while (walker.nextNode()) nodes.push(walker.currentNode);
-  for (const node of nodes) {
-    const runs = findMathRuns(node.data);
-    if (!runs.length) continue;
-    const frag = document.createDocumentFragment();
-    let last = 0;
-    for (const r of runs) {
-      if (r.start > last) frag.append(document.createTextNode(node.data.slice(last, r.start)));
-      const span = document.createElement('span');
-      span.className = `math-atom${r.display ? ' math-display' : ''}`;
-      span.dataset.src = r.src;
-      renderMath(span, r.latex, r.display);
-      frag.append(span);
-      last = r.end;
-    }
-    if (last < node.data.length) frag.append(document.createTextNode(node.data.slice(last)));
-    node.replaceWith(frag);
-  }
-}
-
+/* ---------------- 回答里的双链：点 [[术语]] 跳到术语 / 笔记 ---------------- */
 function bindAnswerLinks(root) {
   root.addEventListener('click', async e => {
     const wl = e.target.closest?.('.wl');
@@ -344,13 +315,13 @@ async function send(question) {
     blockId: sel.blockId, quote: sel.quote,
     chapterTitle: store.state.chapter?.title || '',
   } : null;
+  const history = chat.messages.map(m => ({ role: m.role, content: m.text }));
   await store.appendMessage(chat.id, { role: 'user', text: q, quoted });
 
   const { messages } = buildRequest({
     book: store.state.book, chapter: store.state.chapter, selection: sel,
     terms: store.termsFor(store.state.bookId), ui: store.ui,
-    history: chat.messages.map(m => ({ role: m.role, content: m.text })),
-    question: q, level: store.ui.aiCtxLevel || 'brief',
+    history, question: q, level: store.ui.aiCtxLevel || 'brief',
   });
 
   // 选段是「一次性」的：已经随这条消息发出去了，立刻清掉。
@@ -363,32 +334,13 @@ async function send(question) {
   let acc = '';
   let interrupted = false;
   try {
-    const res = await fetch('/__ai/chat', {
-      method: 'POST', headers: AI_HEADERS, signal: abortCtrl.signal,
-      body: JSON.stringify({ messages, stream: true }),
+    const r = await streamChat({
+      messages, signal: abortCtrl.signal,
+      onDelta: text => paintStreaming(text),
     });
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      toast(e.error || `请求失败（HTTP ${res.status}）`, 'err', 5000);
-      interrupted = true;
-      return;
-    }
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let raw = '';
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const piece = dec.decode(value, { stream: true });
-      raw += piece;
-      acc += parseSseChunk(piece);
-      paintStreaming(acc);
-    }
-    // 服务端在「上游断流」时会补这个标记再收尾（见 server.mjs 的 proxyChat）
-    if (raw.includes('"inkmark":"aborted"')) interrupted = true;
-  } catch (e) {
-    interrupted = true;
-    if (e.name !== 'AbortError') toast(`连接中断：${e.message}`, 'err', 5000);
+    acc = r.text;
+    interrupted = r.interrupted;
+    if (r.error) toast(r.error, 'err', 5000);
   } finally {
     chatting = false; abortCtrl = null;
     if (acc.trim()) {
@@ -415,6 +367,7 @@ function paintStreaming(text) {
   const body = el('div', { class: 'ai-text' });
   body.innerHTML = renderAnswer(text);
   paintMath(body);
+  decorateCode(body);
   streamEl.replaceChildren(body);
   const box = $('#ai-thread');
   if (box) box.scrollTop = box.scrollHeight;

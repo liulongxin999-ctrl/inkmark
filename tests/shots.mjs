@@ -155,6 +155,9 @@ await evalJs(`fetch('/__ai/config', {
   headers: { 'Content-Type': 'application/json', 'X-InkMark': '1' },
   body: JSON.stringify({ provider: 'deepseek', baseUrl: 'https://api.deepseek.com', apiKey: '${demoKey}', model: 'deepseek-flash' }),
 })`, true);
+/* 配置是直接 POST 上去的，页面还不知道 —— 手动刷新一次连接状态，
+   否则截图里显示的会是「还没有连接 AI 助手」的引导页 */
+await evalJs("import('/src/ui/chatkit.js').then(m => m.refreshAiStatus())", true);
 await evalJs("window.__ink.store.go('reader')");
 await sleep(600);
 await evalJs(`(async () => {
@@ -177,6 +180,33 @@ await evalJs("window.__ink.store.go('settings')");
 await sleep(900);
 await evalJs("document.querySelector('#view-settings').scrollTop = 99999");
 await shot('14-设置-AI助手');
+
+/* 独立 AI 工作台（左侧栏「AI」）：不与书相连的那一套 */
+await evalJs(`(async () => {
+  const s = window.__ink.store;
+  const c = await s.saveChat({ kind: 'general', title: '费曼技巧怎么落地' });
+  await s.appendMessage(c.id, { role: 'user', text: '费曼技巧具体怎么用？给我一套能直接照做的步骤。' });
+  await s.appendMessage(c.id, { role: 'assistant', done: true, text:
+    '**费曼技巧**的核心只有一句话：能不能讲给外行听，是检验自己是否真懂的最快办法。\\n\\n' +
+    '1. 把要学的概念写在纸的最上面\\n' +
+    '2. 假装讲给一个 12 岁的孩子听，只用大白话，不用行话\\n' +
+    '3. 卡住的地方就是知识缺口，回到原始材料把它补上\\n' +
+    '4. 打比方、删枝节，直到整段话能一口气顺下来\\n\\n' +
+    '判断自己讲得好不好，可以看一个粗糙的比例：若一次讲解里用了 $n$ 个只有内行才懂的术语，就说明还有 $n$ 处没想明白。\\n\\n' +
+    '$$理解度 = \\\\frac{能用自己的话复述的部分}{需要照抄原文的部分}$$\\n\\n' +
+    '进度可以这样记：\\n\\n' +
+    '\\u0060\\u0060\\u0060python\\n' +
+    'def ready(topic):\\n' +
+    '    """讲得出、举得出例子，才算真懂"""\\n' +
+    '    return topic.explain_in_plain_words() and topic.example()\\n' +
+    '\\u0060\\u0060\\u0060\\n' });
+  s.go('ai');
+  return c.id;
+})()`, true);
+await sleep(600);
+await evalJs("document.querySelector('#view-ai .ai-page-item')?.click()");
+await sleep(900);
+await shot('15-独立AI助手');
 
 ws.close();
 await finish(0);

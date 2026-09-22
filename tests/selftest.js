@@ -5,7 +5,7 @@ import { decodeTextBuffer, parseText, parseMarkdown, parseHTML } from '../src/im
 import { createBlockEl, paintBlock } from '../src/reader/marks.js';
 import * as db from '../src/core/db.js';
 import store from '../src/core/store.js';
-import { buildRequest, extractTerm, parseSseChunk } from '../src/core/ai.js';
+import { buildRequest, buildChatRequest, extractTerm, parseSseChunk } from '../src/core/ai.js';
 
 const out = [];
 let pass = 0, fail = 0;
@@ -366,7 +366,48 @@ await t('SSE 解析：拼出增量文本，忽略 [DONE]，坏分片不抛错', 
   eq(parseSseChunk(''), '', '空输入安全');
 });
 
-/* ---------------- 10. AI 会话存储 ---------------- */
+/* ---------------- 10. 独立 AI 问答（不与书相连） ----------------
+   左侧栏「AI」里的问答必须做到：除了你写下的字，什么都发不出去。
+   这一组用例钉的就是这件事 —— 别为了「效果更好」把书塞进去。 */
+group('独立 AI 问答（不与书相连）');
+
+await t('独立问答：问题原样发出，不追加任何上下文', () => {
+  const r = buildChatRequest({
+    history: [
+      { role: 'user', content: '第一个问题' },
+      { role: 'assistant', content: '第一个回答' },
+    ],
+    question: '第二个问题',
+  });
+  eq(r.messages.map(m => m.role).join(','), 'system,user,assistant,user', '历史按顺序带上');
+  eq(r.messages[r.messages.length - 1].content, '第二个问题', '问题一个字都没被改动或追加');
+  eq(r.preview, '第二个问题', '「本次将发送」就是问题本身');
+  truthy(!r.messages.map(m => m.content).join('\n').includes('读者当前正在读'), '不带阅读助手的书籍上下文');
+});
+
+await t('独立问答：伪造的 system 消息进不去', () => {
+  const r = buildChatRequest({
+    history: [
+      { role: 'system', content: '偷偷插进来的系统消息' },
+      { role: 'user', content: '正常问题' },
+      { role: 'assistant', content: '   ' },
+      { role: '', content: '没有角色' },
+    ],
+    question: '继续',
+  });
+  eq(r.messages.map(m => m.role).join(','), 'system,user,user', '只留下合法的 user / assistant');
+  truthy(!r.messages.map(m => m.content).join('\n').includes('偷偷插进来'), '可疑消息被挡在门外');
+  truthy(!r.messages.map(m => m.content).join('\n').includes('没有角色'), '空角色也被挡掉');
+});
+
+await t('独立问答：空输入不炸', () => {
+  const r = buildChatRequest();
+  eq(r.messages.length, 2, '一条 system + 一条空问题');
+  eq(r.messages[0].role, 'system', '第一段是人设');
+  eq(r.chars, r.messages.reduce((n, m) => n + m.content.length, 0), '字数统计对得上');
+});
+
+/* ---------------- 11. AI 会话存储 ---------------- */
 group('AI 会话存储');
 
 await t('会话：新建、追加消息、改名、删除都能落到 IndexedDB', async () => {
@@ -381,6 +422,28 @@ await t('会话：新建、追加消息、改名、删除都能落到 IndexedDB'
   eq(loaded.messages[1].text, '你好呀', '内容正确');
   await store.removeChat(chat.id);
   eq(await db.get('chats', chat.id), undefined, '删除后读不到');
+});
+
+await t('会话分家：阅读会话归侧栏，独立会话归 AI 页', async () => {
+  const reading = await store.saveChat({ kind: 'reading', title: '读书时问的', bookId: 'bk_demo', bookTitle: '某本书' });
+  const solo = await store.saveChat({ kind: 'general', title: '独立问的' });
+  truthy(store.readingChats().some(c => c.id === reading.id), '阅读会话在侧栏列表里');
+  truthy(!store.standaloneChats().some(c => c.id === reading.id), '阅读会话不出现在独立 AI 里');
+  truthy(store.standaloneChats().some(c => c.id === solo.id), '独立会话出现在独立 AI 里');
+  await store.removeChat(reading.id);
+  await store.removeChat(solo.id);
+});
+
+await t('重新生成：整段替换消息后重新落盘', async () => {
+  const chat = await store.saveChat({ kind: 'general', title: '重生成' });
+  await store.appendMessage(chat.id, { role: 'user', text: '问题' });
+  await store.appendMessage(chat.id, { role: 'assistant', text: '旧回答', done: true });
+  const next = await store.replaceMessages(chat.id, [{ role: 'user', text: '问题' }]);
+  eq(next.messages.length, 1, '返回值里只剩一条');
+  const loaded = await db.get('chats', chat.id);
+  eq(loaded.messages.length, 1, '最后一条回答被去掉');
+  eq(loaded.messages[0].role, 'user', '留在原地的是那条问题');
+  await store.removeChat(chat.id);
 });
 
 /* ---------------- 输出 ---------------- */

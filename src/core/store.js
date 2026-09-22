@@ -395,6 +395,16 @@ export const store = {
 
   chatById(id) { return this.state.chats.find(c => c.id === id); },
 
+  /** 独立 AI 的会话（左侧栏「AI」页）：它跟书没关系，永远不发书里的内容 */
+  standaloneChats() {
+    return this.chatsSorted().filter(c => !c.bookId && c.kind !== 'reading');
+  },
+
+  /** 阅读中问的会话：只出现在阅读视图的右侧栏里 */
+  readingChats() {
+    return this.chatsSorted().filter(c => c.bookId || c.kind === 'reading');
+  },
+
   async saveChat(patch) {
     let row;
     const i = this.state.chats.findIndex(c => c.id === patch.id);
@@ -418,6 +428,19 @@ export const store = {
     const c = this.chatById(chatId);
     if (!c) return null;
     const row = { ...c, messages: [...c.messages, { at: Date.now(), ...msg }], updatedAt: Date.now() };
+    const i = this.state.chats.findIndex(x => x.id === chatId);
+    this.state.chats[i] = row;
+    await db.put('chats', row);
+    this.bus.emit('chats', { chat: row });
+    this.broadcast(['chats']);
+    return row;
+  },
+
+  /** 整段替换一个会话的消息（「重新生成」用：先去掉最后一条回答，再重问一遍） */
+  async replaceMessages(chatId, messages) {
+    const c = this.chatById(chatId);
+    if (!c) return null;
+    const row = { ...c, messages: [...(messages || [])], updatedAt: Date.now() };
     const i = this.state.chats.findIndex(x => x.id === chatId);
     this.state.chats[i] = row;
     await db.put('chats', row);

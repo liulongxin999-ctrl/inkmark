@@ -37,6 +37,35 @@ export function systemPrompt(book, chapter) {
   return lines.join('\n');
 }
 
+/** 独立 AI 的人设：它是一台通用助手，和读者的书没有半点关系 */
+export function chatSystemPrompt() {
+  return [
+    '你是墨读内置的 AI 助手，独立回答用户提出的任何问题。',
+    '回答要准确、简洁、有条理：需要分点时用 Markdown 列表或小标题，代码用围栏代码块并标明语言。',
+    '数学公式请用 LaTeX（行内用 $...$，独立成行用 $$...$$）。',
+    '拿不准的事要直说，不要编造事实、数据或出处。',
+    '你看不到用户的书籍、批注与笔记，也不必去猜；真需要这些信息时，直接问用户。',
+  ].join('\n');
+}
+
+/**
+ * 组装一次「独立问答」的请求。
+ *
+ * 这是隐私上最干净的一条路径：函数只接收「对话历史 + 本次问题」，
+ * 连书的参数都没有 —— 不是「选择不发」，而是根本拿不到，写错也发不出去。
+ * @returns {{ messages: Array<{role:string,content:string}>, preview: string, chars: number }}
+ */
+export function buildChatRequest({ history = [], question = '' } = {}) {
+  const messages = [
+    { role: 'system', content: chatSystemPrompt() },
+    ...(history || [])
+      .filter(m => (m?.role === 'user' || m?.role === 'assistant') && String(m.content || '').trim())
+      .map(m => ({ role: m.role, content: String(m.content) })),
+    { role: 'user', content: trim(question) },
+  ];
+  return { messages, preview: trim(question), chars: requestChars(messages) };
+}
+
 /**
  * 组装一次请求。
  * @returns {{ messages: Array<{role:string,content:string}>, preview: string, chars: number }}

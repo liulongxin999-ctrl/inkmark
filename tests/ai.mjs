@@ -346,6 +346,15 @@ if (!browserPath) {
     await evalJs("window.__ink.store.go('library')");
     await sleep(400);
 
+    /* 独立 AI：一本书都还没有的时候，它就该能用 */
+    await evalJs("window.__ink.store.go('ai')");
+    await sleep(600);
+    step('书库为空时，独立 AI 也能打开并直接提问',
+      (await evalJs("!!document.querySelector('#view-ai .ai-page-input')")) === true
+      && (await evalJs("!!document.querySelector('#view-ai .ai-suggest')")) === true);
+    await evalJs("window.__ink.store.go('library')");
+    await sleep(400);
+
     /* 导入示例书并进入阅读：侧栏只在阅读视图里出现 */
     const doc = await send('DOM.getDocument', { depth: -1 });
     const fileInput = await send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#view-library input[type=file]' });
@@ -474,6 +483,62 @@ if (!browserPath) {
       String(await evalJs("document.querySelector('#aside .ai-input')?.value || ''")).includes('请解释「组块」'));
     step('术语所在段落也被挂成上下文',
       (await evalJs('!!window.__ink.store.state.selectionRef?.blockId')) === true);
+
+    /* ---------- 独立 AI 工作台 ----------
+       左侧栏「AI」：任何时候都能问，而且发出去的请求里**一个字的书都没有**。
+       这一组用例是「完全独立」这句话的唯一凭据，不要删。 */
+    step('左侧栏「复习」下面就是「AI」',
+      (await evalJs(`(() => {
+        const btns = [...document.querySelectorAll('.rail-btn[data-route]')];
+        const i = btns.findIndex(b => b.dataset.route === 'review');
+        return btns[i + 1]?.dataset.route === 'ai';
+      })()`)) === true);
+
+    await evalJs("document.querySelector('.rail-btn[data-route=\"ai\"]').click()");
+    await sleep(600);
+    step('点「AI」进入独立工作台',
+      (await evalJs("window.__ink.store.state.route")) === 'ai'
+      && (await evalJs("!!document.querySelector('#view-ai .ai-page-input')")) === true);
+    step('没读过书也能直接问（入口不依赖任何一本书）',
+      (await evalJs("!!document.querySelector('#view-ai .ai-suggest')")) === true);
+
+    hits.length = 0;
+    await evalJs(`(() => {
+      const t = document.querySelector('#view-ai .ai-page-input');
+      t.value = '独立问题：一加一等于几';
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('#view-ai .ai-send').click();
+      return true;
+    })()`);
+    const soloReply = await waitFor(async () => {
+      const n = await evalJs("(window.__ink.store.standaloneChats()[0]?.messages || []).filter(m => m.role === 'assistant').length");
+      return n > 0 ? n : 0;
+    }, 80, 250);
+    step('独立问答拿到回答并落盘', soloReply > 0, `${soloReply} 条回答`);
+    step('回答内容来自假 provider 的流式分片',
+      String(await evalJs("window.__ink.store.standaloneChats()[0].messages.at(-1).text")).includes('流式回答'));
+    step('独立会话不带书（bookId 为空）',
+      (await evalJs("!window.__ink.store.standaloneChats()[0].bookId")) === true);
+
+    const soloSent = String(hits[0]?.body ? JSON.stringify(hits[0].body.messages) : '');
+    step('独立问答确实发到了服务商', hits.length === 1 && soloSent.includes('一加一'), `${hits.length} 次请求`);
+    step('发出的内容只有 system + 问题，没有别的',
+      hits[0]?.body?.messages?.length === 2
+      && hits[0]?.body?.messages?.[1]?.content === '独立问题：一加一等于几',
+      soloSent.slice(0, 120));
+    step('书里的内容一个字都没发出去',
+      !soloSent.includes('读者当前正在读') && !soloSent.includes('组块')
+      && !soloSent.includes('示例书') && !soloSent.includes('认知科学'),
+      soloSent.slice(0, 120));
+
+    step('阅读侧栏的会话列表里没有这条独立对话',
+      String(await evalJs("JSON.stringify(window.__ink.store.readingChats().map(c => c.title))"))
+        .includes('独立问题') === false);
+    await evalJs("window.__ink.store.go('reader')");
+    await sleep(400);
+    step('回到阅读视图后侧栏列表里也没有它',
+      String(await evalJs("[...document.querySelectorAll('#aside .ai-chat-item .t')].map(x => x.textContent).join('|')"))
+        .includes('独立问题') === false);
 
     /* 刷新后会话仍在 */
     await send('Page.navigate', { url: `http://localhost:${APP_PORT}/` });

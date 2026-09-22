@@ -8,6 +8,7 @@ import { initAi } from './ui/ai.js';
 import { initLibrary, renderLibrary } from './views/library.js';
 import { initNotes, renderNotes, bindWikiLinks } from './views/notes.js';
 import { initReview } from './views/review.js';
+import { initAiPage, renderAiPage } from './views/ai.js';
 import { renderSettings, bindGlobalKeys, openPalette } from './ui/shell.js';
 import { initBackup, markDirty, backup, flush } from './core/backup.js';
 import { askPendingBackup, saveNow } from './ui/shell.js';
@@ -75,6 +76,7 @@ async function boot() {
   initLibrary();
   initNotes();
   initReview();
+  initAiPage();
   initReader();
   initSidebar();
   initAi();
@@ -86,6 +88,7 @@ async function boot() {
     if (route === 'library') renderLibrary();
     else if (route === 'notes') renderNotes();
     else if (route === 'settings') renderSettings();
+    else if (route === 'ai') renderAiPage();
     else if (route === 'reader') { renderTopbar(); renderChapter(); }
   });
   store.bus.on('ui', () => { if (store.state.route === 'settings') return; applyRoute(); });

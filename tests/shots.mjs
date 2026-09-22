@@ -1,4 +1,12 @@
-/* 视觉验收：自动走一遍主要界面并截图，输出到指定目录 */
+/* 视觉验收：自动走一遍主要界面并截图，输出到指定目录
+
+   文件名与 README 引用的 docs/screenshots/ 一一对应，
+   所以「拍一次 → 覆盖过去」就能把仓库里的界面截图更新到当前版本：
+
+     node tests/shots.mjs docs/screenshots
+
+   第 11 张要重现「换了网址打开」的那一幕（浏览器存档空了），
+   得先把演示数据抹掉，所以它放在最后拍。 */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -26,33 +34,32 @@ const CANDIDATES = [
 ];
 const browser = CANDIDATES.find(p => fs.existsSync(p));
 
-/* AI 配置指向临时目录：截图过程会写配置，绝不能碰真实的 ai.local.json */
+/* AI 配置与备份目录都指向临时目录：
+   截图过程会写配置、写磁盘备份，绝不能碰真实的 ai.local.json 和 backups/
+   （截图里也就不会出现你自己的备份文件名） */
 const shotWork = fs.mkdtempSync(path.join(os.tmpdir(), 'inkmark-shot-cfg-'));
-const realAiConfig = path.join(root, 'ai.local.json');
+const shotBackups = fs.mkdtempSync(path.join(os.tmpdir(), 'inkmark-shot-bk-'));
 const server = spawn(process.execPath, [path.join(root, 'server.mjs'), String(PORT)], {
   cwd: root, stdio: 'ignore',
-  env: { ...process.env, INKMARK_AI_CONFIG: path.join(shotWork, 'ai.local.json') },
+  env: {
+    ...process.env,
+    INKMARK_AI_CONFIG: path.join(shotWork, 'ai.local.json'),
+    INKMARK_BACKUP_DIR: shotBackups,
+  },
 });
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'inkmark-shot-'));
 let proc;
 
-/* 截图过程会产生磁盘备份，收尾时清掉自己产生的（不动用户已有的） */
+/* 顺手清掉以往测试端口留下的备份（备份目录已经隔离到临时目录，不会碰你自己的） */
 sweepTestBackups();
-const backupDir = path.join(root, 'backups');
-const preexisting = (() => { try { return fs.readdirSync(backupDir); } catch { return []; } })();
-const cleanBackups = () => {
-  try {
-    for (const f of fs.readdirSync(backupDir)) if (!preexisting.includes(f)) fs.unlinkSync(path.join(backupDir, f));
-  } catch {}
-};
 
 const finish = async code => {
   try { server.kill(); } catch {}
   try { proc?.kill(); } catch {}
   try { fs.rmSync(shotWork, { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(shotBackups, { recursive: true, force: true, maxRetries: 5 }); } catch {}
   await sleep(400);
   try { fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5 }); } catch {}
-  cleanBackups();
   sweepTestBackups();
   process.exit(code);
 };
@@ -81,6 +88,36 @@ for (let i = 0; i < 60; i++) { if (await evalJs('!!window.__inkReady')) break; a
 const shot = async name => {
   await sleep(650);
   const r = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  fs.writeFileSync(path.join(outDir, `${name}.png`), Buffer.from(r.data, 'base64'));
+  console.log('→', path.join(outDir, `${name}.png`));
+};
+
+/** 只截某一块（按它的矩形裁剪）。
+    设置页是好几栏并排的，整页截图会把「你的备份清单」这种私密信息一起拍进去；
+    裁剪出要讲的那一栏，图也更聚焦。stopAt 给一个元素，就只拍到它的下沿为止。 */
+const shotPanel = async (name, mark, stopMark = '') => {
+  const ok = await evalJs(`(() => {
+    const p = [...document.querySelectorAll('#view-settings .set-panel')]
+      .find(x => x.textContent.includes(${JSON.stringify(mark)}));
+    if (!p) return false;
+    p.setAttribute('data-shot', '1');
+    ${stopMark ? `[...p.querySelectorAll('.set-row')].at(-1)?.setAttribute('data-shot-stop', '1');` : ''}
+    p.scrollIntoView({ block: 'start' });
+    return true;
+  })()`);
+  if (!ok) { console.warn(`  [!] 设置页里找不到「${mark}」，跳过 ${name}`); return; }
+  await sleep(500);
+  const clip = await evalJs(`(() => {
+    const p = document.querySelector('[data-shot]');
+    if (!p) return null;
+    const r = p.getBoundingClientRect();
+    const stop = ${stopMark ? "document.querySelector('[data-shot-stop]')?.getBoundingClientRect().bottom" : 'null'};
+    const top = Math.max(r.top - 6, 2);
+    const bottom = stop ? Math.min(stop + 3, r.bottom + 6) : r.bottom + 6;
+    return { x: Math.round(r.left - 6), y: Math.round(top), width: Math.round(r.width + 12), height: Math.round(bottom - top) };
+  })()`);
+  if (!clip) { console.warn(`  [!] 裁剪失败，跳过 ${name}`); return; }
+  const r = await send('Page.captureScreenshot', { format: 'png', clip: { ...clip, scale: 1 } });
   fs.writeFileSync(path.join(outDir, `${name}.png`), Buffer.from(r.data, 'base64'));
   console.log('→', path.join(outDir, `${name}.png`));
 };
@@ -138,6 +175,12 @@ await shot('08-复习卡片');
 await evalJs("window.__ink.store.go('settings')");
 await shot('09-设置');
 
+/* 存档位置与磁盘备份：先手动写一份备份，面板里的状态才是真实的。
+   只拍到「书库为空时提示恢复备份」那一行为止 —— 下面的备份清单是使用者自己的东西 */
+await evalJs("window.__ink.flush('截图用的备份', { force: true })", true);
+await sleep(700);
+await shotPanel('10-存档位置与磁盘备份', '存档位置与磁盘备份', 'stop');
+
 /* 公式与插图：导入一份带 LaTeX 公式和插图的 Markdown 压缩包 */
 await evalJs("window.__ink.store.go('library')");
 await evalJs(richZipExpression('第2章-带插图.zip'), true);
@@ -145,7 +188,7 @@ for (let i = 0; i < 40; i++) { if ((await evalJs("document.querySelectorAll('.bo
 await sleep(500);
 await evalJs("document.querySelector('.book-card').click()");
 await sleep(1200);
-await shot('10-公式与插图');
+await shot('12-公式与插图渲染');
 
 /* ---------------- AI 助手 ----------------
    假 Key 运行时拼出来：这个文件会被防泄漏闸门扫描，写死字面量会被自己拦下。 */
@@ -174,12 +217,11 @@ await evalJs(`(async () => {
 })()`, true);
 await evalJs("window.__ink.store.openAside('ai')");
 await sleep(900);
-await shot('13-AI 问答面板');
+await shot('14-AI 问答面板');
 
 await evalJs("window.__ink.store.go('settings')");
 await sleep(900);
-await evalJs("document.querySelector('#view-settings').scrollTop = 99999");
-await shot('14-设置-AI助手');
+await shotPanel('15-设置-AI助手', 'AI 助手（可选）');
 
 /* 独立 AI 工作台（左侧栏「AI」）：不与书相连的那一套 */
 await evalJs(`(async () => {
@@ -206,7 +248,19 @@ await evalJs(`(async () => {
 await sleep(600);
 await evalJs("document.querySelector('#view-ai .ai-page-item')?.click()");
 await sleep(900);
-await shot('15-独立AI助手');
+await shot('13-独立AI助手');
+
+/* ---------------- 最后一张：一键恢复备份 ----------------
+   把浏览器存档整个抹掉，重现「换了网址打开，书库空了但磁盘还有备份」的那一幕。
+   这一步会毁掉演示数据，所以它必须排在最后。 */
+await evalJs("window.__ink.db.wipeAll()", true);
+await send('Page.navigate', { url: `http://localhost:${PORT}/` });
+for (let i = 0; i < 60; i++) { if (await evalJs('!!window.__inkReady')) break; await sleep(200); }
+for (let i = 0; i < 40; i++) { if (await evalJs("!!document.querySelector('#view-library [data-restore-hint]')")) break; await sleep(250); }
+if (!await evalJs("!!document.querySelector('#view-library [data-restore-hint]')")) {
+  console.warn('  [!] 没有出现「恢复磁盘备份」提示卡，第 11 张图可能不对');
+}
+await shot('11-一键恢复备份');
 
 ws.close();
 await finish(0);

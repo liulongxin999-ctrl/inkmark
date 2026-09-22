@@ -94,6 +94,8 @@ AI 有两个入口，分工是刻意分开的：
 翻译、查概念、理思路都可以。它跟书完全不相干 —— 只发送你在那个输入框里写下的内容，
 书、批注、笔记一个字节都不发。两边的对话各自成列，互不打扰。
 
+![独立 AI 工作台](docs/screenshots/13-独立AI助手.png)
+
 **它是可选的，不配置就完全不会联网。** 开启后，阅读助手的每次提问才会把
 「你选中的原文 ＋ 所在段落 ＋ 书名章节」发给你自己配置的服务商（目前支持 DeepSeek）；
 **你的批注、笔记和术语的「我的理解」永远不会发送**。API Key 只存放在本机。
@@ -157,8 +159,9 @@ AI 有两个入口，分工是刻意分开的：
 
 ```bash
 node tests/check-imports.mjs    # 静态检查：导入导出是否匹配
-node tests/run-headless.mjs     # 72 项运行时自检（无头浏览器，真实 IndexedDB）
+node tests/run-headless.mjs     # 115 项运行时自检（无头浏览器，真实 IndexedDB）
 node tests/smoke.mjs            # 25 步端到端：上传 → 划选批注 → 术语 → 笔记 → 刷新持久化
+node tests/ai.mjs               # AI 助手：配置隔离 / 流式转发 / 独立问答绝不发书里的内容
 node tests/persistence.mjs      # 存档验证：关闭浏览器 / 强制杀进程后数据是否还在
 node tests/backup.mjs           # 磁盘备份与「换浏览器后一键恢复」验证
 node tests/backup-trim.mjs      # 备份保留策略：每个来源地址各留 12 份，互不挤占
@@ -166,7 +169,8 @@ node tests/backup-timing.mjs    # 保存按钮 / Ctrl+S / 关闭时保存 / 数�
 node tests/render-rich.mjs      # 公式渲染 / zip 导入插图 / 跨公式批注锚点是否准确
 node tests/server-ports.mjs     # 端口策略：绝不静默换端口（防止存档看不见）
 node tests/production-path.mjs  # 生产路径与安全边界：备份接口的访问控制、目录穿越防护
-node tests/shots.mjs [输出目录] # 自动截图主要界面，用于视觉验收
+node tests/shots.mjs [输出目录] # 自动截图主要界面；文件名与 docs/screenshots/ 一致，
+                               # 拍完直接覆盖过去，README 的配图就更新到当前版本了
 node server.mjs 8765 --open     # 启动本地服务
 ```
 

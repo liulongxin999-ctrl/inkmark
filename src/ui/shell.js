@@ -638,46 +638,53 @@ export function backupPanel() {
         ))
       : null;
     if (!backup.supported) {
-      listHost.replaceChildren(el('div', { class: 'muted small', text: '磁盘备份需要从「启动.bat」打开的地址访问，当前不可用。' }));
+      setChildren(listHost, el('div', { class: 'muted small', text: '磁盘备份需要从「启动.bat」打开的地址访问，当前不可用。' }));
       return;
     }
     try {
       const items = await listBackups();
       if (!items.length) {
-        listHost.replaceChildren(pendingNotice, el('div', { class: 'muted small', text: '还没有生成备份。默认会在你关闭页面时自动备份一次。' }));
+        setChildren(listHost, pendingNotice, el('div', { class: 'muted small', text: '还没有生成备份。默认会在你关闭页面时自动备份一次。' }));
         return;
       }
-      listHost.replaceChildren(
+      // 用 setChildren 而不是 replaceChildren：pendingNotice 平时是 null，
+      // 直接塞给 replaceChildren 会在页面上显示一个「null」
+      setChildren(listHost,
         pendingNotice,
         el('div', { class: 'muted small', style: { marginBottom: '6px' }, text: `保存在 ${backup.dir}` }),
-        ...items.slice(0, 6).map((b, i) => el('div', { class: 'row', style: { padding: '4px 0', gap: '8px' } },
-          el('span', { class: 'grow mono', style: { fontSize: '11.5px' }, text: b.name }),
-          (b.books || 0) === 0
-            ? el('span', { class: 'pill', text: '空备份' })
-            : el('span', { class: 'pill', text: `${b.books} 书 / ${b.annotations || 0} 标注 / ${b.notes || 0} 笔记` }),
-          b.reason ? el('span', { class: 'muted', style: { fontSize: '11px' }, text: b.reason }) : null,
-          el('span', { class: 'muted', style: { fontSize: '11.5px' }, text: describeBackup(b) }),
-          el('button', {
-            class: 'btn sm', text: i === 0 ? '恢复这一份' : '恢复',
-            on: {
-              click: async () => {
-                if (!await confirmDialog({
-                  title: '从磁盘备份恢复',
-                  message: `将用「${b.name}」覆盖当前全部数据（${describeBackup(b)}）。当前数据会被替换，确定继续吗？`,
-                  okText: '覆盖并恢复', danger: true,
-                })) return;
-                try {
-                  const payload = await restoreFrom(b.name);
-                  toast(`已恢复备份（${payload.data?.books?.length || 0} 本书），正在刷新…`, 'ok');
-                  setTimeout(() => location.reload(), 700);
-                } catch (e) { toast(`恢复失败：${e.message}`, 'err', 5000); }
+        ...items.slice(0, 6).map((b, i) => el('div', { class: 'backup-item' },
+          el('div', { class: 'row', style: { gap: '8px' } },
+            el('span', {
+              class: 'grow mono', title: b.name, text: b.name,
+              style: { fontSize: '11.5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+            }),
+            el('button', {
+              class: 'btn sm', text: i === 0 ? '恢复这一份' : '恢复',
+              on: {
+                click: async () => {
+                  if (!await confirmDialog({
+                    title: '从磁盘备份恢复',
+                    message: `将用「${b.name}」覆盖当前全部数据（${describeBackup(b)}）。当前数据会被替换，确定继续吗？`,
+                    okText: '覆盖并恢复', danger: true,
+                  })) return;
+                  try {
+                    const payload = await restoreFrom(b.name);
+                    toast(`已恢复备份（${payload.data?.books?.length || 0} 本书），正在刷新…`, 'ok');
+                    setTimeout(() => location.reload(), 700);
+                  } catch (e) { toast(`恢复失败：${e.message}`, 'err', 5000); }
+                },
               },
-            },
-          }),
+            })),
+          el('div', { class: 'row wrap', style: { gap: '6px', marginTop: '3px' } },
+            (b.books || 0) === 0
+              ? el('span', { class: 'pill', text: '空备份' })
+              : el('span', { class: 'pill', text: `${b.books} 书 / ${b.annotations || 0} 标注 / ${b.notes || 0} 笔记` }),
+            b.reason ? el('span', { class: 'muted', style: { fontSize: '11px' }, text: b.reason }) : null,
+            el('span', { class: 'muted', style: { fontSize: '11.5px' }, text: describeBackup(b) })),
         )),
       );
     } catch (e) {
-      listHost.replaceChildren(el('div', { class: 'small', style: { color: 'var(--danger)' }, text: `读取备份列表失败：${e.message}` }));
+      setChildren(listHost, el('div', { class: 'small', style: { color: 'var(--danger)' }, text: `读取备份列表失败：${e.message}` }));
     }
   }
 

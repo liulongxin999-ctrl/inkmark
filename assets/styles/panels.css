@@ -193,6 +193,9 @@
 .set-row:last-child{border-bottom:0}
 .set-row .lbl{flex:1;font-size:13px}
 .set-row .lbl small{display:block;color:var(--muted);font-size:11.5px}
+/* 磁盘备份列表：一行文件名、一行说明。文件名很长，挤在一行会变成竖排的乱码 */
+.backup-item{padding:6px 0;border-bottom:1px dashed var(--line)}
+.backup-item:last-child{border-bottom:0}
 .theme-swatches{display:flex;gap:8px}
 .theme-sw{width:46px;height:34px;border-radius:9px;border:2px solid var(--line-2);cursor:pointer;position:relative}
 .theme-sw.active{border-color:var(--accent)}
